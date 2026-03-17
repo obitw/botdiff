@@ -18,7 +18,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from database import Database, TrackedPlayer
-from embeds import build_match_embed
+from embeds import build_history_embed, build_match_embed
 from riot_api import RiotAPI, RiotAPIError
 
 logger = logging.getLogger("botdiff.bot")
@@ -50,6 +50,8 @@ class BotDiff(commands.Bot):
         self.tree.add_command(untrack)
         self.tree.add_command(list_players)
         self.tree.add_command(setup_channel)
+        self.tree.add_command(history)
+        self.tree.add_command(test_alert)
 
         await self.tree.sync()
         logger.info("Commandes slash synchronisées.")
@@ -139,12 +141,12 @@ class BotDiff(commands.Bot):
                     logger.error("Impossible de récupérer le match %s : %s", match_id, exc)
                     continue
 
-                embed, view = build_match_embed(
+                embed, files, view = await build_match_embed(
                     match_data, tracked_in_match, platform=self.platform
                 )
 
                 try:
-                    await channel.send(embed=embed, view=view)  # type: ignore[union-attr]
+                    await channel.send(embed=embed, files=files, view=view)  # type: ignore[union-attr]
                     logger.info("Alerte envoyée pour le match %s dans le guild %s.", match_id, guild_id)
                 except discord.HTTPException as exc:
                     logger.error("Impossible d'envoyer le message : %s", exc)
@@ -241,4 +243,117 @@ async def setup_channel(interaction: discord.Interaction) -> None:
     bot.db.set_channel(interaction.guild.id, interaction.channel_id)
     await interaction.response.send_message(
         f"📢 Les alertes de fin de partie seront envoyées dans <#{interaction.channel_id}>."
+    )
+
+
+@app_commands.command(
+    name="history",
+    description="Afficher les 5 dernières parties d'un joueur.",
+)
+@app_commands.describe(riot_id="Nom Riot du joueur (ex: Faker)", tag="Tagline (ex: T1)")
+async def history(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
+    """Récupère et affiche les 5 dernières parties d'un joueur."""
+    bot: BotDiff = interaction.client  # type: ignore[assignment]
+
+    await interaction.response.defer(thinking=True)
+
+    # Résoudre le PUUID.
+    try:
+        puuid = await bot.riot.get_puuid(riot_id, tag)
+    except RiotAPIError as exc:
+        await interaction.followup.send(
+            f"❌ Impossible de résoudre **{riot_id}#{tag}** : `{exc}`"
+        )
+        return
+
+    # Récupérer les 5 derniers match IDs.
+    try:
+        match_ids = await bot.riot.get_match_ids(puuid, count=5)
+    except RiotAPIError as exc:
+        await interaction.followup.send(
+            f"❌ Erreur lors de la récupération des matchs : `{exc}`"
+        )
+        return
+
+    if not match_ids:
+        await interaction.followup.send(
+            f"📭 Aucune partie récente trouvée pour **{riot_id}#{tag}**."
+        )
+        return
+
+    # Récupérer le détail de chaque match.
+    matches: list[dict] = []
+    for mid in match_ids:
+        try:
+            match_data = await bot.riot.get_match_detail(mid)
+            matches.append(match_data)
+        except RiotAPIError as exc:
+            logger.warning("Impossible de récupérer le match %s : %s", mid, exc)
+
+    if not matches:
+        await interaction.followup.send(
+            f"❌ Impossible de récupérer les détails des parties pour **{riot_id}#{tag}**."
+        )
+        return
+
+    embeds, files, view = await build_history_embed(
+        riot_id, tag, puuid, matches, platform=bot.platform
+    )
+    await interaction.followup.send(embeds=embeds, files=files, view=view)
+
+
+@app_commands.command(
+    name="test_alert",
+    description="Simuler une alerte de fin de partie (pour tester le rendu).",
+)
+@app_commands.describe(riot_id="Nom Riot du joueur (ex: Faker)", tag="Tagline (ex: T1)")
+async def test_alert(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
+    """Récupère la dernière partie d'un joueur et envoie l'alerte comme si elle venait d'être détectée."""
+    bot: BotDiff = interaction.client  # type: ignore[assignment]
+
+    await interaction.response.defer(thinking=True)
+
+    # Résoudre le PUUID.
+    try:
+        puuid = await bot.riot.get_puuid(riot_id, tag)
+    except RiotAPIError as exc:
+        await interaction.followup.send(
+            f"❌ Impossible de résoudre **{riot_id}#{tag}** : `{exc}`"
+        )
+        return
+
+    # Récupérer le dernier match ID.
+    try:
+        match_ids = await bot.riot.get_match_ids(puuid, count=1)
+    except RiotAPIError as exc:
+        await interaction.followup.send(
+            f"❌ Erreur lors de la récupération des matchs : `{exc}`"
+        )
+        return
+
+    if not match_ids:
+        await interaction.followup.send(
+            f"📭 Aucune partie récente pour **{riot_id}#{tag}**."
+        )
+        return
+
+    # Récupérer le détail du match.
+    try:
+        match_data = await bot.riot.get_match_detail(match_ids[0])
+    except RiotAPIError as exc:
+        await interaction.followup.send(
+            f"❌ Impossible de récupérer le match : `{exc}`"
+        )
+        return
+
+    # Construire l'embed d'alerte (identique à la boucle de tracking).
+    tracked_info = [{"riot_id": riot_id, "tag": tag, "puuid": puuid}]
+    embed, files, view = await build_match_embed(
+        match_data, tracked_info, platform=bot.platform
+    )
+    await interaction.followup.send(
+        content="🧪 **Test d'alerte** — voici le rendu de la dernière partie :",
+        embed=embed,
+        files=files,
+        view=view,
     )
