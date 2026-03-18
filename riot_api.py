@@ -22,6 +22,9 @@ logger = logging.getLogger("botdiff.riot_api")
 
 # ── URLs de base ────────────────────────────────────────────
 ACCOUNT_V1_URL = "https://{region}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}"
+SUMMONER_V4_URL = "https://{platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}"
+LEAGUE_V4_URL = "https://{platform}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summoner_id}"
+LEAGUE_V4_PUUID_URL = "https://{platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}"
 MATCH_V5_IDS_URL = "https://{region}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids"
 MATCH_V5_DETAIL_URL = "https://{region}.api.riotgames.com/lol/match/v5/matches/{match_id}"
 
@@ -119,4 +122,20 @@ class RiotAPI:
     async def get_match_detail(self, match_id: str) -> dict[str, Any]:
         """Récupère le détail complet d'un match via Match-V5."""
         url = MATCH_V5_DETAIL_URL.format(region=self.region, match_id=match_id)
+        return await self._request(url)
+
+    async def get_summoner_by_puuid(self, platform: str, puuid: str) -> dict[str, Any]:
+        """Récupère les infos basiques d'un invocateur (id, profileIconId, level)."""
+        logger.info("Fetching summoner by puuid: %s on platform: %s", puuid, platform)
+        url = SUMMONER_V4_URL.format(platform=platform, puuid=puuid)
+        return await self._request(url)
+
+    async def get_league_entries(self, platform: str, summoner_id: str) -> list[dict[str, Any]]:
+        """Récupère le classement (Ranked Solo, Flex) d'un invocateur (DEPRECATED: utiliser PUUID)."""
+        url = LEAGUE_V4_URL.format(platform=platform, summoner_id=summoner_id)
+        return await self._request(url)
+
+    async def get_league_entries_by_puuid(self, platform: str, puuid: str) -> list[dict[str, Any]]:
+        """Récupère le classement (Ranked Solo, Flex) d'un invocateur via son PUUID."""
+        url = LEAGUE_V4_PUUID_URL.format(platform=platform, puuid=puuid)
         return await self._request(url)

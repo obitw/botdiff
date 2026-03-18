@@ -19,24 +19,59 @@ from typing import Any
 
 import aiohttp
 import discord
+import time
 from PIL import Image
 
 logger = logging.getLogger("botdiff.embeds")
 
 # ── Data Dragon (dernière version stable) ───────────────────
 DDRAGON_VERSION_URL = "https://ddragon.leagueoflegends.com/api/versions.json"
-DDRAGON_VERSION = "14.6.1"
+
+_cached_ddragon_version = "14.6.1"
+_last_version_check = 0.0
+VERSION_CHECK_INTERVAL = 3600  # 1 heure
+
+
+async def _get_latest_version(session: aiohttp.ClientSession) -> str:
+    """Récupère la dernière version de Data Dragon et la cache pour 1h."""
+    global _cached_ddragon_version, _last_version_check
+    now = time.time()
+    if now - _last_version_check < VERSION_CHECK_INTERVAL:
+        return _cached_ddragon_version
+
+    try:
+        async with session.get(DDRAGON_VERSION_URL) as resp:
+            if resp.status == 200:
+                versions = await resp.json()
+                if versions and isinstance(versions, list):
+                    _cached_ddragon_version = str(versions[0])
+                    _last_version_check = now
+                    logger.info("Version Data Dragon mise à jour : %s", _cached_ddragon_version)
+    except Exception as exc:
+        logger.warning(
+            "Impossible de récupérer la version Data Dragon, utilisation de %s : %s",
+            _cached_ddragon_version,
+            exc,
+        )
+
+    return _cached_ddragon_version
 DDRAGON_CHAMPION_ICON = (
     "https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{champion}.png"
 )
 DDRAGON_CHAMPION_SPLASH = (
     "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{champion}_0.jpg"
 )
+DDRAGON_PROFILE_ICON = (
+    "https://ddragon.leagueoflegends.com/cdn/{version}/img/profileicon/{icon_id}.png"
+)
 DDRAGON_ITEM_ICON = (
     "https://ddragon.leagueoflegends.com/cdn/{version}/img/item/{item_id}.png"
 )
 DDRAGON_SPELL_ICON = (
     "https://ddragon.leagueoflegends.com/cdn/{version}/img/spell/{spell}.png"
+)
+CD_RANK_ICON = (
+    "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-{tier}.png"
 )
 
 OPGG_PROFILE_URL = "https://www.op.gg/lol/summoners/{region}/{riot_id}-{tag}"
@@ -65,6 +100,21 @@ PLATFORM_TO_OPGG: dict[str, str] = {
 # ── Couleurs ────────────────────────────────────────────────
 COLOR_WIN = 0x2ECC71   # Vert
 COLOR_LOSS = 0xE74C3C  # Rouge
+
+# ── Couleurs des rangs ──────────────────────────────────────
+RANK_COLORS: dict[str, int] = {
+    "IRON": 0x514A44,
+    "BRONZE": 0x8C523A,
+    "SILVER": 0x80989D,
+    "GOLD": 0xCD8837,
+    "PLATINUM": 0x4E9996,
+    "EMERALD": 0x27B366,
+    "DIAMOND": 0x576BCE,
+    "MASTER": 0x9D5ADE,
+    "GRANDMASTER": 0xCD4545,
+    "CHALLENGER": 0xF4C066,
+    "UNRANKED": 0x34495E,
+}
 
 # ── Mapping des queues courantes ────────────────────────────
 QUEUE_NAMES: dict[int, str] = {
@@ -97,6 +147,20 @@ SUMMONER_SPELL_NAMES: dict[int, str] = {
     30: "To the King!",
     31: "Poro",
     32: "Boule de neige",
+}
+
+# 🛠️ Nouveaux emojis pour les rangs (style Discord)
+RANK_EMOJIS: dict[str, str] = {
+    "IRON": "🟤",
+    "BRONZE": "🟫",
+    "SILVER": "⚪",
+    "GOLD": "🟡",
+    "PLATINUM": "🟢",
+    "EMERALD": "✳️",
+    "DIAMOND": "💎",
+    "MASTER": "🟣",
+    "GRANDMASTER": "🔴",
+    "CHALLENGER": "👑",
 }
 
 # ── Taille des icônes pour le strip items ───────────────────
@@ -165,9 +229,10 @@ async def _build_items_strip(
         return None
 
     # Télécharger toutes les icônes.
+    version = await _get_latest_version(session)
     images: list[Image.Image] = []
     for item_id in item_ids:
-        url = DDRAGON_ITEM_ICON.format(version=DDRAGON_VERSION, item_id=item_id)
+        url = DDRAGON_ITEM_ICON.format(version=version, item_id=item_id)
         img = await _download_image(session, url)
         if img:
             img = img.resize((ITEM_ICON_SIZE, ITEM_ICON_SIZE), Image.LANCZOS)
@@ -228,11 +293,12 @@ async def _build_game_strip(
         return None
 
     # ── Télécharger les icônes de spells ────────────────────
+    version = await _get_latest_version(session)
     spell_images: list[Image.Image] = []
     for spell_id in (s1, s2):
         spell_name = SUMMONER_SPELL_DDRAGON.get(spell_id)
         if spell_name:
-            url = DDRAGON_SPELL_ICON.format(version=DDRAGON_VERSION, spell=spell_name)
+            url = DDRAGON_SPELL_ICON.format(version=version, spell=spell_name)
             img = await _download_image(session, url)
             if img:
                 img = img.resize((SPELL_ICON_SIZE, SPELL_ICON_SIZE), Image.LANCZOS)
@@ -241,7 +307,7 @@ async def _build_game_strip(
     # ── Télécharger les icônes d'items ──────────────────────
     item_images: list[Image.Image] = []
     for item_id in item_ids:
-        url = DDRAGON_ITEM_ICON.format(version=DDRAGON_VERSION, item_id=item_id)
+        url = DDRAGON_ITEM_ICON.format(version=version, item_id=item_id)
         img = await _download_image(session, url)
         if img:
             img = img.resize((ITEM_ICON_SIZE, ITEM_ICON_SIZE), Image.LANCZOS)
@@ -278,9 +344,178 @@ async def _build_game_strip(
     return buf
 
 
+async def _build_top_champs_strip(
+    session: aiohttp.ClientSession,
+    top_champs: list[tuple[str, int]],
+) -> io.BytesIO | None:
+    """
+    Génère une bande horizontale d'icônes de champions.
+    """
+    if not top_champs:
+        return None
+
+    version = await _get_latest_version(session)
+    images: list[Image.Image] = []
+    for champ_name, _ in top_champs:
+        url = DDRAGON_CHAMPION_ICON.format(version=version, champion=champ_name)
+        img = await _download_image(session, url)
+        if img:
+            img = img.resize((64, 64), Image.LANCZOS)
+            images.append(img)
+
+    if not images:
+        return None
+
+    spacing = 10
+    total_width = len(images) * 64 + (len(images) - 1) * spacing
+    strip = Image.new("RGBA", (total_width, 64), (0, 0, 0, 0))
+    
+    x = 0
+    for img in images:
+        strip.paste(img, (x, 0))
+        x += 64 + spacing
+
+    buf = io.BytesIO()
+    strip.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
 # ════════════════════════════════════════════════════════════
 # build_match_embed — Alerte de fin de partie
 # ════════════════════════════════════════════════════════════
+
+
+async def build_profile_embed(
+    riot_id: str,
+    tag: str,
+    summoner: dict[str, Any],
+    league_entries: list[dict[str, Any]],
+    last_matches: list[dict[str, Any]],
+    puuid: str,
+    platform: str = "euw1",
+    session: aiohttp.ClientSession | None = None,
+) -> tuple[discord.Embed, list[discord.File], discord.ui.View]:
+    """Construit un embed de profil complet avec statistiques moyennes."""
+    level = summoner["summonerLevel"]
+    profile_icon_id = summoner["profileIconId"]
+    
+    own_session = session is None
+    if own_session:
+        session = aiohttp.ClientSession()
+
+    try:
+        # 1. Traitement du classement
+        ranked_solo = "Unranked"
+        ranked_flex = "Unranked"
+        best_tier = "UNRANKED"
+
+        for entry in league_entries:
+            tier = entry["tier"]
+            rank = entry["rank"]
+            lp = entry["leaguePoints"]
+            wins = entry["wins"]
+            losses = entry["losses"]
+            wr = (wins / (wins + losses)) * 100 if (wins + losses) > 0 else 0
+            
+            info = f"**{tier.title()} {rank}** ({lp} LP)\n{wins}W / {losses}L — {wr:.1f}% WR"
+            
+            if entry["queueType"] == "RANKED_SOLO_5x5":
+                ranked_solo = info
+                best_tier = tier
+            elif entry["queueType"] == "RANKED_FLEX_SR":
+                ranked_flex = info
+                if best_tier == "UNRANKED":
+                    best_tier = tier
+
+        # 2. Statistiques moyennes
+        total_kills, total_deaths, total_assists = 0, 0, 0
+        total_cs, total_min, total_damage = 0, 0, 0
+        champions_count: dict[str, int] = {}
+        
+        count = 0
+        for match in last_matches:
+            parts = match["info"]["participants"]
+            p = next((x for x in parts if x["puuid"] == puuid), None)
+            if not p:
+                continue
+                
+            count += 1
+            total_kills += p["kills"]
+            total_deaths += p["deaths"]
+            total_assists += p["assists"]
+            total_cs += p["totalMinionsKilled"] + p["neutralMinionsKilled"]
+            total_min += (match["info"].get("gameDuration", 0)) / 60
+            total_damage += p["totalDamageDealtToChampions"]
+            
+            champ = p["championName"]
+            champions_count[champ] = champions_count.get(champ, 0) + 1
+
+        if count > 0:
+            avg_k, avg_d, avg_a = total_kills/count, total_deaths/count, total_assists/count
+            avg_kda = (total_kills + total_assists) / max(total_deaths, 1)
+            avg_cs_min = total_cs / total_min if total_min > 0 else 0
+            avg_dmg = total_damage / count
+            stats_val = (
+                f"⚔️ **KDA:** {avg_k:.1f} / {avg_d:.1f} / {avg_a:.1f} — (**{avg_kda:.2f}**)\n"
+                f"🌾 **CS/min:** {avg_cs_min:.1f}  •  💥 **Dégâts:** {int(avg_dmg):,}"
+            )
+        else:
+            stats_val = "Aucune partie récente trouvée."
+
+        top_champs = sorted(champions_count.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_champs_str = ", ".join([f"**{c}** ({n})" for c, n in top_champs])
+
+        # 3. Construction de l'Embed
+        color = RANK_COLORS.get(best_tier, 0x34495E)
+        embed = discord.Embed(color=color, description=f"### 🎖️ Level {level}")
+        
+        # Author : Invocateur + Icône de profil
+        version = await _get_latest_version(session)
+        profile_icon_url = DDRAGON_PROFILE_ICON.format(version=version, icon_id=profile_icon_id)
+        embed.set_author(name=f"{riot_id}#{tag}", icon_url=profile_icon_url)
+        
+        files: list[discord.File] = []
+
+        # Thumbnail : Rang cropé
+        if best_tier != "UNRANKED":
+            url = CD_RANK_ICON.format(tier=best_tier.lower())
+            img = await _download_image(session, url)
+            if img:
+                bbox = img.getbbox()
+                if bbox: img = img.crop(bbox)
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                buf.seek(0)
+                files.append(discord.File(buf, filename="rank.png"))
+                embed.set_thumbnail(url="attachment://rank.png")
+
+        # Champs
+        embed.add_field(name="🏆 Ranked Solo/Duo", value=ranked_solo, inline=True)
+        embed.add_field(name="⚔️ Ranked Flex", value=ranked_flex, inline=True)
+        
+        embed.add_field(name=f"📊 Moyennes ({count} parties)", value=stats_val, inline=False)
+        
+        if top_champs:
+            embed.add_field(name="👑 Champions favoris", value=top_champs_str, inline=False)
+
+        # Image : Champions strip
+        strip_buf = await _build_top_champs_strip(session, top_champs)
+        if strip_buf:
+            files.append(discord.File(strip_buf, filename="champs.png"))
+            embed.set_image(url="attachment://champs.png")
+
+        opgg_region = PLATFORM_TO_OPGG.get(platform, platform)
+        opgg_url = OPGG_PROFILE_URL.format(region=opgg_region, riot_id=riot_id.replace(" ", "%20"), tag=tag)
+        
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="View on OP.GG", url=opgg_url, style=discord.ButtonStyle.link))
+        
+        return embed, files, view
+
+    finally:
+        if own_session and session:
+            await session.close()
 
 
 async def build_match_embed(
@@ -332,8 +567,9 @@ async def build_match_embed(
             result_text = "Victoire" if won else "Défaite"
             result_emoji = "🏆" if won else "💀"
 
+            version = await _get_latest_version(session)
             champion_icon = DDRAGON_CHAMPION_ICON.format(
-                version=DDRAGON_VERSION, champion=champion
+                version=version, champion=champion
             )
 
             description = (
@@ -449,8 +685,9 @@ async def build_history_embed(
             queue_id = info.get("queueId", 0)
             queue_name = QUEUE_NAMES.get(queue_id, f"Queue {queue_id}")
 
+            version = await _get_latest_version(session)
             champion_icon = DDRAGON_CHAMPION_ICON.format(
-                version=DDRAGON_VERSION, champion=champion
+                version=version, champion=champion
             )
 
             color = COLOR_WIN if won else COLOR_LOSS

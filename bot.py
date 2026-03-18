@@ -19,7 +19,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from database import Database, TrackedPlayer
-from embeds import build_history_embed, build_match_embed
+from embeds import build_history_embed, build_match_embed, build_profile_embed
 from riot_api import RiotAPI, RiotAPIError
 
 logger = logging.getLogger("botdiff.bot")
@@ -52,6 +52,7 @@ class BotDiff(commands.Bot):
         self.tree.add_command(list_players)
         self.tree.add_command(setup_channel)
         self.tree.add_command(history)
+        self.tree.add_command(profile)
         self.tree.add_command(test_alert)
 
         await self.tree.sync()
@@ -311,6 +312,53 @@ async def history(interaction: discord.Interaction, riot_id: str, tag: str) -> N
         riot_id, tag, puuid, matches, platform=bot.platform
     )
     await interaction.followup.send(embeds=embeds, files=files, view=view)
+
+
+@app_commands.command(
+    name="profile",
+    description="Afficher le profil complet et les statistiques d'un joueur.",
+)
+@app_commands.describe(riot_id="Nom Riot du joueur (ex: Faker)", tag="Tagline (ex: T1)")
+async def profile(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
+    """Récupère les infos de rang et les stats moyennes d'un joueur."""
+    bot: BotDiff = interaction.client  # type: ignore[assignment]
+
+    await interaction.response.defer(thinking=True)
+
+    try:
+        # 1. Résoudre le PUUID
+        puuid = await bot.riot.get_puuid(riot_id, tag)
+        
+        # 2. Récupérer les infos Summoner (pour level et icon) et les Match IDs en parallèle
+        summoner_task = bot.riot.get_summoner_by_puuid(bot.platform, puuid)
+        match_ids_task = bot.riot.get_match_ids(puuid, count=10)
+        
+        summoner, match_ids = await asyncio.gather(summoner_task, match_ids_task)
+
+        # 3. Récupérer le classement et les détails des matchs en parallèle
+        league_task = bot.riot.get_league_entries_by_puuid(bot.platform, puuid)
+        matches_task = asyncio.gather(
+            *[bot.riot.get_match_detail(mid) for mid in match_ids],
+            return_exceptions=True
+        )
+        
+        league_entries, matches_results = await asyncio.gather(league_task, matches_task)
+        
+        # Filtrer les matchs valides
+        valid_matches = [m for m in matches_results if not isinstance(m, Exception)]
+
+        # 4. Construire l'embed
+        embed, files, view = await build_profile_embed(
+            riot_id, tag, summoner, league_entries, valid_matches, puuid, platform=bot.platform
+        )
+        
+        await interaction.followup.send(embed=embed, files=files, view=view)
+
+    except RiotAPIError as exc:
+        await interaction.followup.send(f"❌ Erreur API Riot : `{exc}`")
+    except Exception as exc:
+        logger.exception("Erreur lors de la commande /profile")
+        await interaction.followup.send(f"❌ Une erreur interne est survenue : `{exc}`")
 
 
 @app_commands.command(

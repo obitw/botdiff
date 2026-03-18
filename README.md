@@ -66,6 +66,7 @@ docker-compose up -d
 | `/remove <riot_id> <tag>`  | Retire un joueur de la surveillance                                  |
 | `/list`                    | Affiche la liste des joueurs surveillés sur le serveur               |
 | `/setup_channel`           | Définit le salon actuel comme destination des alertes                |
+| `/profile <riot_id> <tag>` | Affiche le profil complet (rangs, stats moyennes, favoris)           |
 | `/history <riot_id> <tag>` | Affiche les 5 dernières parties d'un joueur                          |
 | `/test_alert <riot_id> <tag>` | Simule une notification pour la dernière partie d'un joueur       |
 
