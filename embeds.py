@@ -286,13 +286,16 @@ async def build_match_embed(
     tracked_players: list[dict[str, Any]],
     platform: str = "euw1",
     session: aiohttp.ClientSession | None = None,
-) -> tuple[discord.Embed, list[discord.File], discord.ui.View]:
+) -> tuple[list[discord.Embed], list[discord.File], discord.ui.View]:
     """
-    Construit un Embed + fichiers d'items + View pour un match terminé.
+    Construit un Embed par joueur traqué, dans le même style que l'historique :
+      • Thumbnail champion à droite
+      • Stats compactes dans la description
+      • Image composite fixe : spells + items
 
     Returns
     -------
-    (discord.Embed, list[discord.File], discord.ui.View)
+    (list[discord.Embed], list[discord.File], discord.ui.View)
     """
     own_session = session is None
     if own_session:
@@ -304,18 +307,8 @@ async def build_match_embed(
         queue_id = info.get("queueId", 0)
         queue_name = QUEUE_NAMES.get(queue_id, f"Queue {queue_id}")
 
-        first_participant = _find_participant(match_data, tracked_players[0]["puuid"])
-        won = first_participant["win"] if first_participant else False
-        color = COLOR_WIN if won else COLOR_LOSS
-        result_text = "✅ Victoire" if won else "❌ Défaite"
-
-        embed = discord.Embed(
-            title=f"{'🏆' if won else '💀'}  Partie terminée — {result_text}",
-            color=color,
-        )
-
+        embeds: list[discord.Embed] = []
         files: list[discord.File] = []
-        last_champion = None
 
         for idx, tp in enumerate(tracked_players):
             participant = _find_participant(match_data, tp["puuid"])
@@ -331,43 +324,34 @@ async def build_match_embed(
             cs_per_min = cs / max(game_duration / 60, 1)
             damage = participant["totalDamageDealtToChampions"]
             vision = participant["visionScore"]
-            player_won = participant["win"]
-            spells = _format_spells(participant)
+            won = participant["win"]
 
-            player_result = "✅" if player_won else "❌"
-            field_name = f"{player_result}  {tp['riot_id']}#{tp['tag']}  —  {champion}"
+            color = COLOR_WIN if won else COLOR_LOSS
+            result_text = "Victoire" if won else "Défaite"
+            result_emoji = "🏆" if won else "💀"
 
-            field_value = (
-                f"**KDA** : {kills}/{deaths}/{assists}  ({kda_ratio:.2f})\n"
-                f"**CS** : {cs}  ({cs_per_min:.1f}/min)\n"
-                f"**Dégâts** : {damage:,}\n"
-                f"**Vision** : {vision}\n"
-                f"**Spells** : {spells}"
+            champion_icon = DDRAGON_CHAMPION_ICON.format(
+                version=DDRAGON_VERSION, champion=champion
             )
 
-            embed.add_field(name=field_name, value=field_value, inline=False)
-            last_champion = champion
+            description = (
+                f"### {result_emoji} {champion} — {result_text}\n"
+                f"**{kills} / {deaths} / {assists}**  ({kda_ratio:.2f} KDA)\n"
+                f"CS {cs} ({cs_per_min:.1f}/min)  •  {damage:,} dégâts  •  👁 {vision}"
+            )
 
-            # Générer l'image composite spells + items.
+            embed = discord.Embed(color=color, description=description)
+            embed.set_thumbnail(url=champion_icon)
+            embed.set_footer(text=f"{queue_name}  •  {_format_duration(game_duration)}")
+
+            # Générer l'image composite spells + items (largeur fixe).
             strip_buf = await _build_game_strip(session, participant)
             if strip_buf:
                 filename = f"match_{idx}.png"
                 files.append(discord.File(strip_buf, filename=filename))
+                embed.set_image(url=f"attachment://{filename}")
 
-        # Images du dernier champion.
-        if last_champion:
-            embed.set_thumbnail(
-                url=DDRAGON_CHAMPION_ICON.format(
-                    version=DDRAGON_VERSION, champion=last_champion
-                )
-            )
-
-        # Utiliser la dernière image spells+items comme image embed.
-        if files:
-            last_file = files[-1]
-            embed.set_image(url=f"attachment://{last_file.filename}")
-
-        embed.set_footer(text=f"{queue_name}  •  Durée : {_format_duration(game_duration)}")
+            embeds.append(embed)
 
         view = discord.ui.View()
         for tp in tracked_players:
@@ -385,11 +369,13 @@ async def build_match_embed(
                 )
             )
 
-        return embed, files, view
+        return embeds, files, view
 
     finally:
         if own_session and session:
             await session.close()
+
+
 
 
 # ════════════════════════════════════════════════════════════

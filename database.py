@@ -12,7 +12,10 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "botdiff.db"
+DATA_DIR = Path("/app/data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = DATA_DIR / "botdiff.db"
+
 
 
 @dataclass

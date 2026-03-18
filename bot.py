@@ -141,15 +141,22 @@ class BotDiff(commands.Bot):
                     logger.error("Impossible de récupérer le match %s : %s", match_id, exc)
                     continue
 
-                embed, files, view = await build_match_embed(
+                embeds, files, view = await build_match_embed(
                     match_data, tracked_in_match, platform=self.platform
                 )
 
+                # Message de notification.
+                names = ", ".join(
+                    f"**{p['riot_id']}#{p['tag']}**" for p in tracked_in_match
+                )
+                content = f"🎮 {names} vient de terminer une partie !"
+
                 try:
-                    await channel.send(embed=embed, files=files, view=view)  # type: ignore[union-attr]
+                    await channel.send(content=content, embeds=embeds, files=files, view=view)  # type: ignore[union-attr]
                     logger.info("Alerte envoyée pour le match %s dans le guild %s.", match_id, guild_id)
                 except discord.HTTPException as exc:
                     logger.error("Impossible d'envoyer le message : %s", exc)
+
 
     @check_matches_loop.before_loop
     async def before_check(self) -> None:
@@ -348,12 +355,13 @@ async def test_alert(interaction: discord.Interaction, riot_id: str, tag: str) -
 
     # Construire l'embed d'alerte (identique à la boucle de tracking).
     tracked_info = [{"riot_id": riot_id, "tag": tag, "puuid": puuid}]
-    embed, files, view = await build_match_embed(
+    embeds, files, view = await build_match_embed(
         match_data, tracked_info, platform=bot.platform
     )
+    content = f"🎮 **{riot_id}#{tag}** vient de terminer une partie !"
     await interaction.followup.send(
-        content="🧪 **Test d'alerte** — voici le rendu de la dernière partie :",
-        embed=embed,
+        content=content,
+        embeds=embeds,
         files=files,
         view=view,
     )

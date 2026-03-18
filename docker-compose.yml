@@ -4,3 +4,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - botdiff_data:/app/data
+
+volumes:
+  botdiff_data:
