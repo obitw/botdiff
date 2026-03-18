@@ -245,11 +245,12 @@ async def _build_game_strip(
             img = img.resize((ITEM_ICON_SIZE, ITEM_ICON_SIZE), Image.LANCZOS)
             item_images.append(img)
 
-    # ── Calcul des dimensions ───────────────────────────────
-    spells_w = len(spell_images) * (SPELL_ICON_SIZE + ITEM_SPACING) if spell_images else 0
-    items_w = len(item_images) * (ITEM_ICON_SIZE + ITEM_SPACING) - ITEM_SPACING if item_images else 0
-    sep = SEPARATOR_WIDTH if spell_images and item_images else 0
-    total_width = spells_w + sep + items_w
+    # ── Calcul des dimensions (largeur fixe) ──────────────────
+    MAX_SPELL_SLOTS = 2
+    MAX_ITEM_SLOTS = 7
+    fixed_spells_w = MAX_SPELL_SLOTS * (SPELL_ICON_SIZE + ITEM_SPACING)
+    fixed_items_w = MAX_ITEM_SLOTS * (ITEM_ICON_SIZE + ITEM_SPACING) - ITEM_SPACING
+    total_width = fixed_spells_w + SEPARATOR_WIDTH + fixed_items_w
     total_height = ITEM_ICON_SIZE
 
     strip = Image.new("RGBA", (total_width, total_height), (47, 49, 54, 255))
@@ -261,7 +262,8 @@ async def _build_game_strip(
         strip.paste(img, (x, spell_y))
         x += SPELL_ICON_SIZE + ITEM_SPACING
 
-    x += sep  # Espace séparateur.
+    # Sauter à la position fixe des items (après les 2 slots de spells + séparateur).
+    x = fixed_spells_w + SEPARATOR_WIDTH
 
     # Items.
     for img in item_images:
