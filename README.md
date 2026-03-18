@@ -44,8 +44,16 @@ Ouvre `.env` et renseigne tes tokens :
 
 ### 5. Lancer le bot
 
+#### Avec Python directement
+
 ```bash
 python main.py
+```
+
+#### Avec Docker (Recommandé)
+
+```bash
+docker-compose up -d
 ```
 
 ---
@@ -54,23 +62,25 @@ python main.py
 
 | Commande                   | Description                                                          |
 | -------------------------- | -------------------------------------------------------------------- |
-| `/track <riot_id> <tag>`   | Ajoute un joueur à la surveillance (résout le PUUID automatiquement) |
-| `/untrack <riot_id> <tag>` | Retire un joueur de la surveillance                                  |
+| `/add <riot_id> <tag>`     | Ajoute un joueur à la surveillance (résout le PUUID automatiquement) |
+| `/remove <riot_id> <tag>`  | Retire un joueur de la surveillance                                  |
 | `/list`                    | Affiche la liste des joueurs surveillés sur le serveur               |
 | `/setup_channel`           | Définit le salon actuel comme destination des alertes                |
+| `/history <riot_id> <tag>` | Affiche les 5 dernières parties d'un joueur                          |
+| `/test_alert <riot_id> <tag>` | Simule une notification pour la dernière partie d'un joueur       |
 
 ---
 
 ## ⚙️ Fonctionnement
 
 1. La commande `/setup_channel` définit où le bot envoie les alertes.
-2. `/track` ajoute des joueurs à surveiller.
+2. `/add` ajoute des joueurs à surveiller.
 3. Toutes les **2 minutes**, le bot vérifie l'historique récent de chaque joueur via l'API Match-V5.
 4. Si un nouveau match est détecté, un **embed riche** est envoyé avec :
    - 🟢 / 🔴 Couleur victoire / défaite
    - Champion joué (avec icône)
    - KDA, CS, CS/min, Dégâts, Vision
-   - Bouton lien vers OP.GG
+   - Boutons liens vers OP.GG et League of Graphs
 5. **Déduplication premade** : si plusieurs joueurs traqués étaient dans la même partie, un **seul** embed est envoyé regroupant leurs stats.
 
 ---
