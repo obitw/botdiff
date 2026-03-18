@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import io
 import logging
+from pathlib import Path
 from typing import Any
+
 
 import aiohttp
 import discord
@@ -411,13 +413,21 @@ async def build_history_embed(
         embeds: list[discord.Embed] = []
         files: list[discord.File] = []
 
-        # Embed titre.
+        # Embed titre — nom du joueur en titre, bannière "HISTORIQUE" en image.
         title_embed = discord.Embed(
-            title=f"📜  Historique — {riot_id}#{tag}",
-            description=f"{len(matches)} partie(s) récente(s)",
+            title=f"📜  {riot_id}#{tag}",
             color=0x3498DB,
         )
+
+        # Charger la bannière statique.
+        banner_path = Path(__file__).parent / "assets" / "history_banner.png"
+        if banner_path.exists():
+            banner_file = discord.File(str(banner_path), filename="history_banner.png")
+            files.append(banner_file)
+            title_embed.set_image(url="attachment://history_banner.png")
+
         embeds.append(title_embed)
+
 
         for game_idx, match_data in enumerate(matches):
             participant = _find_participant(match_data, puuid)

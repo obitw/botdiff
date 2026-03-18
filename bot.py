@@ -9,6 +9,7 @@ Contient :
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import defaultdict
 from typing import Any
@@ -46,8 +47,8 @@ class BotDiff(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Appelé automatiquement au démarrage. Synchronise les commandes."""
-        self.tree.add_command(track)
-        self.tree.add_command(untrack)
+        self.tree.add_command(add)
+        self.tree.add_command(remove)
         self.tree.add_command(list_players)
         self.tree.add_command(setup_channel)
         self.tree.add_command(history)
@@ -169,9 +170,9 @@ class BotDiff(commands.Bot):
 # ════════════════════════════════════════════════════════════
 
 
-@app_commands.command(name="track", description="Ajouter un joueur LoL à la surveillance.")
+@app_commands.command(name="add", description="Ajouter un joueur LoL à la surveillance.")
 @app_commands.describe(riot_id="Nom Riot du joueur (ex: Faker)", tag="Tagline (ex: T1)")
-async def track(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
+async def add(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
     """Ajoute un joueur à la base de données en résolvant son PUUID."""
     assert interaction.guild is not None
     bot: BotDiff = interaction.client  # type: ignore[assignment]
@@ -197,9 +198,9 @@ async def track(interaction: discord.Interaction, riot_id: str, tag: str) -> Non
         )
 
 
-@app_commands.command(name="untrack", description="Retirer un joueur de la surveillance.")
+@app_commands.command(name="remove", description="Retirer un joueur de la surveillance.")
 @app_commands.describe(riot_id="Nom Riot du joueur", tag="Tagline")
-async def untrack(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
+async def remove(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
     """Retire un joueur de la surveillance."""
     assert interaction.guild is not None
     bot: BotDiff = interaction.client  # type: ignore[assignment]
@@ -288,14 +289,17 @@ async def history(interaction: discord.Interaction, riot_id: str, tag: str) -> N
         )
         return
 
-    # Récupérer le détail de chaque match.
+    # Récupérer le détail de chaque match en parallèle.
+    results = await asyncio.gather(
+        *[bot.riot.get_match_detail(mid) for mid in match_ids],
+        return_exceptions=True,
+    )
     matches: list[dict] = []
-    for mid in match_ids:
-        try:
-            match_data = await bot.riot.get_match_detail(mid)
-            matches.append(match_data)
-        except RiotAPIError as exc:
-            logger.warning("Impossible de récupérer le match %s : %s", mid, exc)
+    for mid, res in zip(match_ids, results):
+        if isinstance(res, Exception):
+            logger.warning("Impossible de récupérer le match %s : %s", mid, res)
+        else:
+            matches.append(res)
 
     if not matches:
         await interaction.followup.send(
