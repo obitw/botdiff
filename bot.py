@@ -136,12 +136,23 @@ class BotDiff(commands.Bot):
                 self.db.update_last_match_id(player.puuid, guild_id, match_ids[0])
 
             # Envoie un embed par match unique (déduplication premade).
-            for match_id, tracked_in_match in new_matches_map.items():
+            # Tri chrologique par match_id si le format est Region_Timestamp/ID
+            ordered_matches = sorted(new_matches_map.items(), key=lambda x: int(x[0].split('_')[1]) if '_' in x[0] else 0)
+            for match_id, tracked_in_match in ordered_matches:
                 try:
                     match_data = await self.riot.get_match_detail(match_id)
                 except RiotAPIError as exc:
                     logger.error("Impossible de récupérer le match %s : %s", match_id, exc)
                     continue
+
+                for p in tracked_in_match:
+                    puuid = p["puuid"]
+                    participant = next((x for x in match_data["info"]["participants"] if x["puuid"] == puuid), None)
+                    if participant:
+                        current_streak = self.db.get_win_streak(puuid, guild_id)
+                        new_streak = current_streak + 1 if participant.get("win", False) else 0
+                        self.db.update_win_streak(puuid, guild_id, new_streak)
+                        p["win_streak"] = new_streak
 
                 embeds, files, view = await build_match_embed(
                     match_data, tracked_in_match, platform=self.platform
@@ -406,7 +417,8 @@ async def test_alert(interaction: discord.Interaction, riot_id: str, tag: str) -
         return
 
     # Construire l'embed d'alerte (identique à la boucle de tracking).
-    tracked_info = [{"riot_id": riot_id, "tag": tag, "puuid": puuid}]
+    current_streak = bot.db.get_win_streak(puuid, interaction.guild.id)
+    tracked_info = [{"riot_id": riot_id, "tag": tag, "puuid": puuid, "win_streak": current_streak}]
     embeds, files, view = await build_match_embed(
         match_data, tracked_info, platform=bot.platform
     )

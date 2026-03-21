@@ -646,9 +646,12 @@ async def build_match_embed(
             champion_icon = DDRAGON_CHAMPION_ICON.format(
                 version=version, champion=champion
             )
+            
+            streak = tp.get("win_streak", 0)
+            streak_text = f" 🔥 ({streak} Win Streak)" if streak >= 3 else ""
 
             description = (
-                f"### {result_emoji} {champion} — {result_text}\n"
+                f"### {result_emoji} {champion} — {result_text}{streak_text}\n"
                 f"**{kills} / {deaths} / {assists}**  ({kda_ratio:.2f} KDA)\n"
                 f"CS {cs} ({cs_per_min:.1f}/min)  •  {damage:,} dégâts  •  👁 {vision}"
             )
