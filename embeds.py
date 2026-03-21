@@ -577,52 +577,61 @@ async def build_match_embed(
             champ = p.get("championName", "Inconnu")
             k, d, a = p.get("kills", 0), p.get("deaths", 0), p.get("assists", 0)
             p_name = p.get("riotIdGameName") or p.get("summonerName", "Inconnu")
+            p_puuid = p.get("puuid")
             
             if len(p_name) > 15:
                 p_name = p_name[:15] + "…"
             
-            team_data[tid]["players"].append((champ, p_name, k, d, a, dmg))
-
-        teams_fields = []
-        for tid in sorted(team_data.keys()):
-            data = team_data[tid]
-            win_emoji = "🏆" if data["win"] else "💀"
-            
-            if tid == 100:
-                t_name = "🔵 Bleu"
-                p_icon = "🔹"
-                b_color = "🟦"
-            elif tid == 200:
-                t_name = "🔴 Rouge"
-                p_icon = "🔸"
-                b_color = "🟥"
-            else:
-                t_name = f"Team {tid}"
-                p_icon = "◽"
-                b_color = "⬜"
-                
-            name_hdr = f"{t_name} {win_emoji}"
-            kda_hdr = "⚔️ KDA"
-            dmg_hdr = "💥 Damages"
-            
-            col_champs = []
-            col_kda = []
-            col_dmg = []
-            for champ, p_name, k, d, a, dmg in data["players"]:
-                bar = get_bar(dmg, max_damage, b_color)
-                col_champs.append(f"{p_icon} **{champ}**")
-                col_kda.append(f"{k}/{d}/{a}")
-                dmg_str = fmt_d(dmg)
-                col_dmg.append(f"{bar} **{dmg_str}**")
-
-            teams_fields.append((name_hdr, "\n".join(col_champs) or "-", True))
-            teams_fields.append((kda_hdr, "\n".join(col_kda) or "-", True))
-            teams_fields.append((dmg_hdr, "\n".join(col_dmg) or "-", True))
+            team_data[tid]["players"].append((champ, p_name, k, d, a, dmg, p_puuid))
 
         embeds: list[discord.Embed] = []
         files: list[discord.File] = []
 
         for idx, tp in enumerate(tracked_players):
+            current_puuid = tp["puuid"]
+            
+            # ── Construction des colonnes d'équipe pour CE joueur ──
+            teams_fields = []
+            for tid in sorted(team_data.keys()):
+                data = team_data[tid]
+                win_emoji = "🏆" if data["win"] else "💀"
+                
+                if tid == 100:
+                    t_name = "🔵 Bleu"
+                    p_icon = "🔹"
+                    b_color = "🟦"
+                elif tid == 200:
+                    t_name = "🔴 Rouge"
+                    p_icon = "🔸"
+                    b_color = "🟥"
+                else:
+                    t_name = f"Team {tid}"
+                    p_icon = "◽"
+                    b_color = "⬜"
+                    
+                name_hdr = f"{t_name} {win_emoji}"
+                kda_hdr = "⚔️ KDA"
+                dmg_hdr = "💥 Damages"
+                
+                col_champs = []
+                col_kda = []
+                col_dmg = []
+                for champ, p_name, k, d, a, dmg, p_puuid in data["players"]:
+                    is_tracked = (p_puuid == current_puuid)
+                    bar = get_bar(dmg, max_damage, b_color)
+                    
+                    champ_str = f"**{champ}**" if is_tracked else champ
+                    kda_str = f"**{k}/{d}/{a}**" if is_tracked else f"{k}/{d}/{a}"
+                    dmg_val_str = fmt_d(dmg)
+                    dmg_str = f"**{bar} {dmg_val_str}**" if is_tracked else f"{bar} {dmg_val_str}"
+                    
+                    col_champs.append(f"{p_icon} {champ_str}")
+                    col_kda.append(kda_str)
+                    col_dmg.append(dmg_str)
+
+                teams_fields.append((name_hdr, "\n".join(col_champs) or "-", True))
+                teams_fields.append((kda_hdr, "\n".join(col_kda) or "-", True))
+                teams_fields.append((dmg_hdr, "\n".join(col_dmg) or "-", True))
             participant = _find_participant(match_data, tp["puuid"])
             if participant is None:
                 continue
@@ -653,7 +662,7 @@ async def build_match_embed(
             description = (
                 f"### {result_emoji} {champion} — {result_text}{streak_text}\n"
                 f"**{kills} / {deaths} / {assists}**  ({kda_ratio:.2f} KDA)\n"
-                f"CS {cs} ({cs_per_min:.1f}/min)  •  {damage:,} dégâts  •  👁 {vision}"
+                f"CS {cs} ({cs_per_min:.1f}/min)  •  👁 {vision}"
             )
 
             embed = discord.Embed(color=color, description=description)
@@ -779,7 +788,7 @@ async def build_history_embed(
             description = (
                 f"### {result_emoji} {champion} — {result_text}\n"
                 f"**{kills} / {deaths} / {assists}**  ({kda_ratio:.2f} KDA)\n"
-                f"CS {cs} ({cs_per_min:.1f}/min)  •  {damage:,} dégâts  •  👁 {vision}"
+                f"CS {cs} ({cs_per_min:.1f}/min)  •  👁 {vision}"
             )
 
             embed = discord.Embed(color=color, description=description)
