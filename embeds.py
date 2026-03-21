@@ -544,6 +544,81 @@ async def build_match_embed(
         queue_id = info.get("queueId", 0)
         queue_name = QUEUE_NAMES.get(queue_id, f"Queue {queue_id}")
 
+        def fmt_d(d: int) -> str:
+            return f"{d/1000.0:.1f}k".replace(".0k", "k") if d >= 1000 else str(d)
+
+        def get_bar(dmg: int, max_dmg: int, color: str, length: int = 5) -> str:
+            if max_dmg <= 0: return "⬛" * length
+            r = dmg / max_dmg
+            filled = round(r * length)
+            return color * filled + "⬛" * (length - filled)
+            
+        max_damage = max((p.get("totalDamageDealtToChampions", 0) for p in info.get("participants", [])), default=0)
+
+        team_data: dict[int, dict[str, Any]] = {}
+        for p in info.get("participants", []):
+            tid = p.get("teamId", 0)
+            if tid not in team_data:
+                team_data[tid] = {
+                    "win": p.get("win", False),
+                    "kills": 0,
+                    "deaths": 0,
+                    "assists": 0,
+                    "damage": 0,
+                    "players": []
+                }
+            
+            team_data[tid]["kills"] += p.get("kills", 0)
+            team_data[tid]["deaths"] += p.get("deaths", 0)
+            team_data[tid]["assists"] += p.get("assists", 0)
+            dmg = p.get("totalDamageDealtToChampions", 0)
+            team_data[tid]["damage"] += dmg
+            
+            champ = p.get("championName", "Inconnu")
+            k, d, a = p.get("kills", 0), p.get("deaths", 0), p.get("assists", 0)
+            p_name = p.get("riotIdGameName") or p.get("summonerName", "Inconnu")
+            
+            if len(p_name) > 15:
+                p_name = p_name[:15] + "…"
+            
+            team_data[tid]["players"].append((champ, p_name, k, d, a, dmg))
+
+        teams_fields = []
+        for tid in sorted(team_data.keys()):
+            data = team_data[tid]
+            win_emoji = "🏆" if data["win"] else "💀"
+            
+            if tid == 100:
+                t_name = "🔵 Bleu"
+                p_icon = "🔹"
+                b_color = "🟦"
+            elif tid == 200:
+                t_name = "🔴 Rouge"
+                p_icon = "🔸"
+                b_color = "🟥"
+            else:
+                t_name = f"Team {tid}"
+                p_icon = "◽"
+                b_color = "⬜"
+                
+            name_hdr = f"{t_name} {win_emoji}"
+            kda_hdr = "⚔️ KDA"
+            dmg_hdr = "💥 Damages"
+            
+            col_champs = []
+            col_kda = []
+            col_dmg = []
+            for champ, p_name, k, d, a, dmg in data["players"]:
+                bar = get_bar(dmg, max_damage, b_color)
+                col_champs.append(f"{p_icon} **{champ}**")
+                col_kda.append(f"{k}/{d}/{a}")
+                dmg_str = fmt_d(dmg)
+                col_dmg.append(f"{bar} **{dmg_str}**")
+
+            teams_fields.append((name_hdr, "\n".join(col_champs) or "-", True))
+            teams_fields.append((kda_hdr, "\n".join(col_kda) or "-", True))
+            teams_fields.append((dmg_hdr, "\n".join(col_dmg) or "-", True))
+
         embeds: list[discord.Embed] = []
         files: list[discord.File] = []
 
@@ -580,6 +655,10 @@ async def build_match_embed(
 
             embed = discord.Embed(color=color, description=description)
             embed.set_thumbnail(url=champion_icon)
+            
+            for f_name, f_value, f_inline in teams_fields:
+                embed.add_field(name=f_name, value=f_value, inline=f_inline)
+                
             embed.set_footer(text=f"{queue_name}  •  {_format_duration(game_duration)}")
 
             # Générer l'image composite spells + items (largeur fixe).
