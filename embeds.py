@@ -163,6 +163,13 @@ RANK_EMOJIS: dict[str, str] = {
     "CHALLENGER": "👑",
 }
 
+# ── Emojis Teams ────────────────────────────────────────────
+TEAM_CONFIG = {
+    100: {"name": "🔵 Bleu", "icon": "🔹", "bar": "🟦"},
+    200: {"name": "🔴 Rouge", "icon": "🔸", "bar": "🟥"},
+    0:   {"name": "Équipe ?", "icon": "◽", "bar": "⬜"}
+}
+
 # ── Taille des icônes pour le strip items ───────────────────
 ITEM_ICON_SIZE = 48
 ITEM_SPACING = 4
@@ -588,50 +595,6 @@ async def build_match_embed(
         files: list[discord.File] = []
 
         for idx, tp in enumerate(tracked_players):
-            current_puuid = tp["puuid"]
-            
-            # ── Construction des colonnes d'équipe pour CE joueur ──
-            teams_fields = []
-            for tid in sorted(team_data.keys()):
-                data = team_data[tid]
-                win_emoji = "🏆" if data["win"] else "💀"
-                
-                if tid == 100:
-                    t_name = "🔵 Bleu"
-                    p_icon = "🔹"
-                    b_color = "🟦"
-                elif tid == 200:
-                    t_name = "🔴 Rouge"
-                    p_icon = "🔸"
-                    b_color = "🟥"
-                else:
-                    t_name = f"Team {tid}"
-                    p_icon = "◽"
-                    b_color = "⬜"
-                    
-                name_hdr = f"{t_name} {win_emoji}"
-                kda_hdr = "⚔️ KDA"
-                dmg_hdr = "💥 Damages"
-                
-                col_champs = []
-                col_kda = []
-                col_dmg = []
-                for champ, p_name, k, d, a, dmg, p_puuid in data["players"]:
-                    is_tracked = (p_puuid == current_puuid)
-                    bar = get_bar(dmg, max_damage, b_color)
-                    
-                    champ_str = f"**{champ}**" if is_tracked else champ
-                    kda_str = f"**{k}/{d}/{a}**" if is_tracked else f"{k}/{d}/{a}"
-                    dmg_val_str = fmt_d(dmg)
-                    dmg_str = f"**{bar} {dmg_val_str}**" if is_tracked else f"{bar} {dmg_val_str}"
-                    
-                    col_champs.append(f"{p_icon} {champ_str}")
-                    col_kda.append(kda_str)
-                    col_dmg.append(dmg_str)
-
-                teams_fields.append((name_hdr, "\n".join(col_champs) or "-", True))
-                teams_fields.append((kda_hdr, "\n".join(col_kda) or "-", True))
-                teams_fields.append((dmg_hdr, "\n".join(col_dmg) or "-", True))
             participant = _find_participant(match_data, tp["puuid"])
             if participant is None:
                 continue
@@ -646,7 +609,6 @@ async def build_match_embed(
             damage = participant["totalDamageDealtToChampions"]
             vision = participant["visionScore"]
             won = participant["win"]
-
             color = COLOR_WIN if won else COLOR_LOSS
             result_text = "Victoire" if won else "Défaite"
             result_emoji = "🏆" if won else "💀"
@@ -656,21 +618,14 @@ async def build_match_embed(
                 version=version, champion=champion
             )
             
-            streak = tp.get("win_streak", 0)
-            streak_text = f" 🔥 ({streak} Win Streak)" if streak >= 3 else ""
-
             description = (
-                f"### {result_emoji} {champion} — {result_text}{streak_text}\n"
+                f"### {result_emoji} {champion} — {result_text}\n"
                 f"**{kills} / {deaths} / {assists}**  ({kda_ratio:.2f} KDA)\n"
-                f"CS {cs} ({cs_per_min:.1f}/min)  •  👁 {vision}"
+                f"CS {cs} ({cs_per_min:.1f}/min)  •  {damage:,} dégâts  •  👁 {vision}"
             )
 
             embed = discord.Embed(color=color, description=description)
             embed.set_thumbnail(url=champion_icon)
-            
-            for f_name, f_value, f_inline in teams_fields:
-                embed.add_field(name=f_name, value=f_value, inline=f_inline)
-                
             embed.set_footer(text=f"{queue_name}  •  {_format_duration(game_duration)}")
 
             # Générer l'image composite spells + items (largeur fixe).
@@ -682,7 +637,29 @@ async def build_match_embed(
 
             embeds.append(embed)
 
-        view = discord.ui.View()
+        view = MatchDetailsView(match_data, tracked_players, platform)
+        return embeds, files, view
+
+    finally:
+        if own_session and session:
+            await session.close()
+
+
+class MatchDetailsView(discord.ui.View):
+    """Vue contenant un bouton pour afficher les détails du match en éphémère."""
+
+    def __init__(
+        self,
+        match_data: dict[str, Any],
+        tracked_players: list[dict[str, Any]],
+        platform: str = "euw1",
+    ) -> None:
+        super().__init__(timeout=None)
+        self.match_data = match_data
+        self.tracked_players = tracked_players
+        self.platform = platform
+
+        # Ajouter le bouton OP.GG pour chaque joueur.
         for tp in tracked_players:
             opgg_region = PLATFORM_TO_OPGG.get(platform, platform)
             opgg_url = OPGG_PROFILE_URL.format(
@@ -690,19 +667,85 @@ async def build_match_embed(
                 riot_id=tp["riot_id"].replace(" ", "%20"),
                 tag=tp["tag"],
             )
-            view.add_item(
+            self.add_item(
                 discord.ui.Button(
-                    label=f"OP.GG — {tp['riot_id']}",
+                    label="OP.GG",
                     url=opgg_url,
                     style=discord.ButtonStyle.link,
                 )
             )
 
-        return embeds, files, view
+    @discord.ui.button(label="Détails", style=discord.ButtonStyle.secondary, emoji="📊")
+    async def show_details(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        """Affiche les statistiques détaillées des équipes dans un message éphémère."""
+        info = self.match_data["info"]
+        participants = info.get("participants", [])
+        max_damage = max((p.get("totalDamageDealtToChampions", 0) for p in participants), default=0)
+        
+        # On regroupe les joueurs par équipe.
+        team_data: dict[int, dict[str, Any]] = {}
+        for p in participants:
+            tid = p.get("teamId", 0)
+            if tid not in team_data:
+                team_data[tid] = {"win": p.get("win", False), "players": []}
+            
+            p_name = p.get("riotIdGameName") or p.get("summonerName", "Inconnu")
+            if len(p_name) > 15: p_name = p_name[:15] + "…"
+            
+            team_data[tid]["players"].append({
+                "name": p_name,
+                "champion": p.get("championName", "Inconnu"),
+                "kills": p.get("kills", 0),
+                "deaths": p.get("deaths", 0),
+                "assists": p.get("assists", 0),
+                "damage": p.get("totalDamageDealtToChampions", 0),
+                "puuid": p.get("puuid")
+            })
 
-    finally:
-        if own_session and session:
-            await session.close()
+        tracked_puuids = {tp["puuid"] for tp in self.tracked_players}
+        
+        def fmt_d(d: int) -> str:
+            return f"{d/1000.0:.1f}k".replace(".0k", "k") if d >= 1000 else str(d)
+
+        def get_bar(dmg: int, max_dmg_val: int, b_color: str, length: int = 5) -> str:
+            if max_dmg_val <= 0: return "⬛" * length
+            r = dmg / max_dmg_val
+            filled = round(r * length)
+            return b_color * filled + "⬛" * (length - filled)
+
+        embed = discord.Embed(title="📊 Détails des Équipes", color=0x34495E)
+        all_lines = [f"◽ `CHAMP   ` `  KDA  ` `  DMG  `"]
+        
+        sorted_tids = sorted(team_data.keys())
+        for idx, tid in enumerate(sorted_tids):
+            data = team_data[tid]
+            conf = TEAM_CONFIG.get(tid, TEAM_CONFIG[0])
+            
+            # Un petit séparateur si c'est la deuxième équipe
+            if idx > 0:
+                all_lines.append("")
+
+            for p in data["players"]:
+                is_tracked = p["puuid"] in tracked_puuids
+                bar = get_bar(p["damage"], max_damage, conf["bar"], length=4)
+                
+                c_name = p['champion'][:8]
+                kda_val = f"{p['kills']}/{p['deaths']}/{p['assists']}"
+                dmg_val = fmt_d(p['damage'])
+                
+                c_txt = f"`{c_name:<8}`"
+                k_txt = f"`{kda_val:^7}`"
+                d_txt = f"`{dmg_val:>5}`"
+                
+                if is_tracked:
+                    c_txt = f"**{c_txt}**"
+                    k_txt = f"**{k_txt}**"
+                    d_txt = f"**{d_txt}**"
+                
+                all_lines.append(f"{conf['icon']} {c_txt} {k_txt} {bar} {d_txt}")
+
+        embed.description = "\n".join(all_lines)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 

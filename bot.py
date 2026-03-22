@@ -115,6 +115,7 @@ class BotDiff(commands.Bot):
 
                 # Initialisation : on enregistre le dernier match sans alerter.
                 if last_known is None:
+
                     self.db.update_last_match_id(
                         player.puuid, guild_id, match_ids[0]
                     )
@@ -145,14 +146,8 @@ class BotDiff(commands.Bot):
                     logger.error("Impossible de récupérer le match %s : %s", match_id, exc)
                     continue
 
-                for p in tracked_in_match:
-                    puuid = p["puuid"]
+                    # On cherche le participant correspondant dans les données Riot.
                     participant = next((x for x in match_data["info"]["participants"] if x["puuid"] == puuid), None)
-                    if participant:
-                        current_streak = self.db.get_win_streak(puuid, guild_id)
-                        new_streak = current_streak + 1 if participant.get("win", False) else 0
-                        self.db.update_win_streak(puuid, guild_id, new_streak)
-                        p["win_streak"] = new_streak
 
                 embeds, files, view = await build_match_embed(
                     match_data, tracked_in_match, platform=self.platform
@@ -416,9 +411,7 @@ async def test_alert(interaction: discord.Interaction, riot_id: str, tag: str) -
         )
         return
 
-    # Construire l'embed d'alerte (identique à la boucle de tracking).
-    current_streak = bot.db.get_win_streak(puuid, interaction.guild.id)
-    tracked_info = [{"riot_id": riot_id, "tag": tag, "puuid": puuid, "win_streak": current_streak}]
+    tracked_info = [{"riot_id": riot_id, "tag": tag, "puuid": puuid}]
     embeds, files, view = await build_match_embed(
         match_data, tracked_info, platform=bot.platform
     )

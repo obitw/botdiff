@@ -52,10 +52,6 @@ class Database:
                 )
                 """
             )
-            try:
-                self.conn.execute("ALTER TABLE tracked_players ADD COLUMN win_streak INTEGER DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
             self.conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS config (
@@ -128,14 +124,6 @@ class Database:
                 "UPDATE tracked_players SET last_match_id=? WHERE puuid=? AND guild_id=?",
                 (match_id, puuid, guild_id),
             )
-
-    def get_win_streak(self, puuid: str, guild_id: int) -> int:
-        row = self.conn.execute("SELECT win_streak FROM tracked_players WHERE puuid=? AND guild_id=?", (puuid, guild_id)).fetchone()
-        return row["win_streak"] if row and "win_streak" in row.keys() else 0
-
-    def update_win_streak(self, puuid: str, guild_id: int, streak: int) -> None:
-        with self.conn:
-            self.conn.execute("UPDATE tracked_players SET win_streak=? WHERE puuid=? AND guild_id=?", (streak, puuid, guild_id))
 
     # ── Configuration (salon d'alerte) ──────────────────────
 
