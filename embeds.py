@@ -4,7 +4,7 @@ embeds.py — Construction des Embeds Discord pour les résultats de match.
 Produit un Embed riche :
   • Couleur verte / rouge selon victoire / défaite
   • Champs par joueur traqué : champion (icône), KDA, CS, dégâts, vision, items
-  • Lien OP.GG par joueur
+  • Profil DPM.LOL par joueur
   • Infos du match en footer (mode, durée)
   • Images composites des items générées avec Pillow
 """
@@ -74,28 +74,7 @@ CD_RANK_ICON = (
     "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-{tier}.png"
 )
 
-OPGG_PROFILE_URL = "https://www.op.gg/lol/summoners/{region}/{riot_id}-{tag}"
-
-# ── Mapping platform Riot → région OP.GG ────────────────────
-PLATFORM_TO_OPGG: dict[str, str] = {
-    "euw1": "euw",
-    "eun1": "eune",
-    "na1": "na",
-    "kr": "kr",
-    "jp1": "jp",
-    "br1": "br",
-    "la1": "lan",
-    "la2": "las",
-    "oc1": "oce",
-    "tr1": "tr",
-    "ru": "ru",
-    "ph2": "ph",
-    "sg2": "sg",
-    "th2": "th",
-    "tw2": "tw",
-    "vn2": "vn",
-    "me1": "me",
-}
+DPM_PROFILE_URL = "https://dpm.lol/{riot_id}-{tag}"
 
 # ── Couleurs ────────────────────────────────────────────────
 COLOR_WIN = 0x2ECC71   # Vert
@@ -512,11 +491,10 @@ async def build_profile_embed(
             files.append(discord.File(strip_buf, filename="champs.png"))
             embed.set_image(url="attachment://champs.png")
 
-        opgg_region = PLATFORM_TO_OPGG.get(platform, platform)
-        opgg_url = OPGG_PROFILE_URL.format(region=opgg_region, riot_id=riot_id.replace(" ", "%20"), tag=tag)
+        dpm_url = DPM_PROFILE_URL.format(riot_id=riot_id.replace(" ", ""), tag=tag)
         
         view = discord.ui.View()
-        view.add_item(discord.ui.Button(label="View on OP.GG", url=opgg_url, style=discord.ButtonStyle.link))
+        view.add_item(discord.ui.Button(label="DPM.LOL", url=dpm_url, style=discord.ButtonStyle.link))
         
         return embed, files, view
 
@@ -659,18 +637,16 @@ class MatchDetailsView(discord.ui.View):
         self.tracked_players = tracked_players
         self.platform = platform
 
-        # Ajouter le bouton OP.GG pour chaque joueur.
+        # Ajouter le bouton DPM.LOL pour chaque joueur.
         for tp in tracked_players:
-            opgg_region = PLATFORM_TO_OPGG.get(platform, platform)
-            opgg_url = OPGG_PROFILE_URL.format(
-                region=opgg_region,
-                riot_id=tp["riot_id"].replace(" ", "%20"),
+            dpm_url = DPM_PROFILE_URL.format(
+                riot_id=tp["riot_id"].replace(" ", ""),
                 tag=tp["tag"],
             )
             self.add_item(
                 discord.ui.Button(
-                    label="OP.GG",
-                    url=opgg_url,
+                    label="DPM.LOL",
+                    url=dpm_url,
                     style=discord.ButtonStyle.link,
                 )
             )
@@ -847,18 +823,16 @@ async def build_history_embed(
 
             embeds.append(embed)
 
-        # Bouton OP.GG.
-        opgg_region = PLATFORM_TO_OPGG.get(platform, platform)
-        opgg_url = OPGG_PROFILE_URL.format(
-            region=opgg_region,
-            riot_id=riot_id.replace(" ", "%20"),
+        # Bouton DPM.LOL.
+        dpm_url = DPM_PROFILE_URL.format(
+            riot_id=riot_id.replace(" ", ""),
             tag=tag,
         )
         view = discord.ui.View()
         view.add_item(
             discord.ui.Button(
-                label=f"OP.GG — {riot_id}",
-                url=opgg_url,
+                label=f"DPM.LOL — {riot_id}",
+                url=dpm_url,
                 style=discord.ButtonStyle.link,
             )
         )
