@@ -587,9 +587,16 @@ async def build_match_embed(
             damage = participant["totalDamageDealtToChampions"]
             vision = participant["visionScore"]
             won = participant["win"]
-            color = COLOR_WIN if won else COLOR_LOSS
-            result_text = "Victoire" if won else "Défaite"
-            result_emoji = "🏆" if won else "💀"
+            is_remake = participant.get("gameEndedInEarlySurrender", False) or game_duration < 240
+            
+            if is_remake:
+                color = 0x95A5A6  # Gris
+                result_text = "Remake"
+                result_emoji = "🏳️"
+            else:
+                color = COLOR_WIN if won else COLOR_LOSS
+                result_text = "Victoire" if won else "Défaite"
+                result_emoji = "🏆" if won else "💀"
 
             version = await _get_latest_version(session)
             champion_icon = DDRAGON_CHAMPION_ICON.format(
@@ -807,9 +814,17 @@ async def build_history_embed(
                 version=version, champion=champion
             )
 
-            color = COLOR_WIN if won else COLOR_LOSS
-            result_text = "Victoire" if won else "Défaite"
-            result_emoji = "🏆" if won else "💀"
+            won = participant["win"]
+            is_remake = participant.get("gameEndedInEarlySurrender", False) or game_duration < 240
+            
+            if is_remake:
+                color = 0x95A5A6  # Gris
+                result_text = "Remake"
+                result_emoji = "🏳️"
+            else:
+                color = COLOR_WIN if won else COLOR_LOSS
+                result_text = "Victoire" if won else "Défaite"
+                result_emoji = "🏆" if won else "💀"
 
             description = (
                 f"### {result_emoji} {champion} — {result_text}\n"

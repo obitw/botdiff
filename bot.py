@@ -152,12 +152,14 @@ class BotDiff(commands.Bot):
                     if player_obj:
                         participant = next((x for x in match_data["info"]["participants"] if x["puuid"] == player_obj.puuid), None)
                         if participant:
-                            won = participant["win"]
-                            if won:
-                                player_obj.streak = 1 if player_obj.streak < 0 else player_obj.streak + 1
-                            else:
-                                player_obj.streak = -1 if player_obj.streak > 0 else player_obj.streak - 1
-                            self.db.update_streak(player_obj.puuid, guild_id, player_obj.streak)
+                            is_remake = participant.get("gameEndedInEarlySurrender", False) or match_data["info"].get("gameDuration", 0) < 240
+                            if not is_remake:
+                                won = participant["win"]
+                                if won:
+                                    player_obj.streak = 1 if player_obj.streak < 0 else player_obj.streak + 1
+                                else:
+                                    player_obj.streak = -1 if player_obj.streak > 0 else player_obj.streak - 1
+                                self.db.update_streak(player_obj.puuid, guild_id, player_obj.streak)
                         p_dict["streak"] = player_obj.streak
 
                 embeds, files, view = await build_match_embed(
