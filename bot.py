@@ -146,8 +146,19 @@ class BotDiff(commands.Bot):
                     logger.error("Impossible de récupérer le match %s : %s", match_id, exc)
                     continue
 
-                    # On cherche le participant correspondant dans les données Riot.
-                    participant = next((x for x in match_data["info"]["participants"] if x["puuid"] == puuid), None)
+                # Mise à jour du streak pour chaque joueur surveillé dans ce match
+                for p_dict in tracked_in_match:
+                    player_obj = next((p for p in players if p.puuid == p_dict["puuid"]), None)
+                    if player_obj:
+                        participant = next((x for x in match_data["info"]["participants"] if x["puuid"] == player_obj.puuid), None)
+                        if participant:
+                            won = participant["win"]
+                            if won:
+                                player_obj.streak = 1 if player_obj.streak < 0 else player_obj.streak + 1
+                            else:
+                                player_obj.streak = -1 if player_obj.streak > 0 else player_obj.streak - 1
+                            self.db.update_streak(player_obj.puuid, guild_id, player_obj.streak)
+                        p_dict["streak"] = player_obj.streak
 
                 embeds, files, view = await build_match_embed(
                     match_data, tracked_in_match, platform=self.platform

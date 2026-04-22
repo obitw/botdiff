@@ -596,10 +596,17 @@ async def build_match_embed(
                 version=version, champion=champion
             )
             
+            streak = tp.get("streak", 0)
+            streak_text = ""
+            if streak <= -3:
+                streak_text = f"  •  🥶 Loose streak: {-streak}"
+            elif streak >= 3:
+                streak_text = f"  •  🔥 Win streak: {streak}"
+            
             description = (
                 f"### {result_emoji} {champion} — {result_text}\n"
                 f"**{kills} / {deaths} / {assists}**  ({kda_ratio:.2f} KDA)\n"
-                f"CS {cs} ({cs_per_min:.1f}/min)  •  {damage:,} dégâts  •  👁 {vision}"
+                f"CS {cs} ({cs_per_min:.1f}/min)  •  {damage:,} dégâts  •  👁 {vision}{streak_text}"
             )
 
             embed = discord.Embed(color=color, description=description)
