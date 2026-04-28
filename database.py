@@ -17,7 +17,6 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "botdiff.db"
 
 
-
 @dataclass
 class TrackedPlayer:
     """Représente un joueur surveillé."""
@@ -28,6 +27,8 @@ class TrackedPlayer:
     guild_id: int
     last_match_id: str | None
     streak: int = 0
+    solo_tier: str | None = None
+    solo_rank: str | None = None
 
 
 class Database:
@@ -50,6 +51,8 @@ class Database:
                     guild_id      INTEGER NOT NULL,
                     last_match_id TEXT,
                     streak        INTEGER DEFAULT 0,
+                    solo_tier     TEXT,
+                    solo_rank     TEXT,
                     PRIMARY KEY (puuid, guild_id)
                 )
                 """
@@ -62,12 +65,25 @@ class Database:
                 )
                 """
             )
-            
+
             # Migration : ajouter la colonne streak si elle n'existe pas
             try:
-                self.conn.execute("ALTER TABLE tracked_players ADD COLUMN streak INTEGER DEFAULT 0")
+                self.conn.execute(
+                    "ALTER TABLE tracked_players ADD COLUMN streak INTEGER DEFAULT 0"
+                )
             except sqlite3.OperationalError:
                 pass  # La colonne existe déjà
+
+            # Migration : ajouter les colonnes rank si elles n'existent pas
+            try:
+                self.conn.execute(
+                    "ALTER TABLE tracked_players ADD COLUMN solo_tier TEXT"
+                )
+                self.conn.execute(
+                    "ALTER TABLE tracked_players ADD COLUMN solo_rank TEXT"
+                )
+            except sqlite3.OperationalError:
+                pass  # Les colonnes existent déjà
 
     # ── Joueurs ─────────────────────────────────────────────
 
@@ -101,7 +117,7 @@ class Database:
     def list_players(self, guild_id: int) -> list[TrackedPlayer]:
         """Liste tous les joueurs traqués pour un serveur donné."""
         rows = self.conn.execute(
-            "SELECT riot_id, tag, puuid, guild_id, last_match_id, streak FROM tracked_players WHERE guild_id=?",
+            "SELECT riot_id, tag, puuid, guild_id, last_match_id, streak, solo_tier, solo_rank FROM tracked_players WHERE guild_id=?",
             (guild_id,),
         ).fetchall()
         return [TrackedPlayer(**dict(r)) for r in rows]
@@ -109,7 +125,7 @@ class Database:
     def get_all_players(self) -> list[TrackedPlayer]:
         """Liste tous les joueurs traqués, toutes guildes confondues."""
         rows = self.conn.execute(
-            "SELECT riot_id, tag, puuid, guild_id, last_match_id, streak FROM tracked_players"
+            "SELECT riot_id, tag, puuid, guild_id, last_match_id, streak, solo_tier, solo_rank FROM tracked_players"
         ).fetchall()
         return [TrackedPlayer(**dict(r)) for r in rows]
 
@@ -123,9 +139,7 @@ class Database:
         ).fetchone()
         return row["last_match_id"] if row else None
 
-    def update_last_match_id(
-        self, puuid: str, guild_id: int, match_id: str
-    ) -> None:
+    def update_last_match_id(self, puuid: str, guild_id: int, match_id: str) -> None:
         """Met à jour le dernier match traité pour un joueur."""
         with self.conn:
             self.conn.execute(
@@ -139,6 +153,14 @@ class Database:
             self.conn.execute(
                 "UPDATE tracked_players SET streak=? WHERE puuid=? AND guild_id=?",
                 (streak, puuid, guild_id),
+            )
+
+    def update_rank(self, puuid: str, guild_id: int, tier: str, rank: str) -> None:
+        """Met à jour le rang solo d'un joueur."""
+        with self.conn:
+            self.conn.execute(
+                "UPDATE tracked_players SET solo_tier=?, solo_rank=? WHERE puuid=? AND guild_id=?",
+                (tier, rank, puuid, guild_id),
             )
 
     # ── Configuration (salon d'alerte) ──────────────────────

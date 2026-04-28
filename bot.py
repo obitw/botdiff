@@ -24,6 +24,24 @@ from riot_api import RiotAPI, RiotAPIError
 
 logger = logging.getLogger("botdiff.bot")
 
+TIER_ORDER = {
+    "IRON": 0,
+    "BRONZE": 1,
+    "SILVER": 2,
+    "GOLD": 3,
+    "PLATINUM": 4,
+    "EMERALD": 5,
+    "DIAMOND": 6,
+    "MASTER": 7,
+    "GRANDMASTER": 8,
+    "CHALLENGER": 9,
+}
+RANK_ORDER = {"IV": 0, "III": 1, "II": 2, "I": 3}
+
+
+def get_rank_value(tier: str, rank: str) -> int:
+    return TIER_ORDER.get(tier, 0) * 10 + RANK_ORDER.get(rank, 0)
+
 
 class BotDiff(commands.Bot):
     """Bot Discord qui surveille les parties League of Legends."""
@@ -115,10 +133,99 @@ class BotDiff(commands.Bot):
 
                 # Initialisation : on enregistre le dernier match sans alerter.
                 if last_known is None:
+                    self.db.update_last_match_id(player.puuid, guild_id, match_ids[0])
+                    # Initialiser le rang
+                    try:
+                        league_entries = await self.riot.get_league_entries_by_puuid(
+                            self.platform, player.puuid
+                        )
+                        solo_q = next(
+                            (
+                                q
+                                for q in league_entries
+                                if q.get("queueType") == "RANKED_SOLO_5x5"
+                            ),
+                            None,
+                        )
+                        if solo_q:
+                            self.db.update_rank(
+                                player.puuid,
+                                guild_id,
+                                solo_q.get("tier", ""),
+                                solo_q.get("rank", ""),
+                            )
+                    except RiotAPIError:
+                        pass
+                    continue
 
-                    self.db.update_last_match_id(
-                        player.puuid, guild_id, match_ids[0]
+                new_matches_found = False
+                # Identifie les matchs plus récents que le dernier connu.
+                for mid in match_ids:
+                    if mid == last_known:
+                        break
+                    new_matches_found = True
+                    new_matches_map[mid].append(
+                        {
+                            "riot_id": player.riot_id,
+                            "tag": player.tag,
+                            "puuid": player.puuid,
+                        }
                     )
+
+                if new_matches_found:
+                    # Met à jour le dernier match traité.
+                    self.db.update_last_match_id(player.puuid, guild_id, match_ids[0])
+
+                    # Vérifie les changements de rang
+                    try:
+                        league_entries = await self.riot.get_league_entries_by_puuid(
+                            self.platform, player.puuid
+                        )
+                        solo_q = next(
+                            (
+                                q
+                                for q in league_entries
+                                if q.get("queueType") == "RANKED_SOLO_5x5"
+                            ),
+                            None,
+                        )
+                        if solo_q:
+                            current_tier = solo_q.get("tier", "")
+                            current_rank = solo_q.get("rank", "")
+
+                            # Si on avait un rang stocké
+                            if player.solo_tier and player.solo_rank:
+                                old_val = get_rank_value(
+                                    player.solo_tier, player.solo_rank
+                                )
+                                new_val = get_rank_value(current_tier, current_rank)
+
+                                if new_val > old_val:
+                                    # Rank UP
+                                    await channel.send(
+                                        f"📈 **{player.riot_id}#{player.tag}** a RANK UP en Solo/Duo ! ({player.solo_tier.title()} {player.solo_rank} ➔ **{current_tier.title()} {current_rank}**)"
+                                    )
+                                elif new_val < old_val:
+                                    # Rank DOWN (Troll message)
+                                    await channel.send(
+                                        f"📉 AHAHAH **{player.riot_id}#{player.tag}** a RANK DOWN en Solo/Duo ! Retourne dans la poubelle ➔ **{current_tier.title()} {current_rank}** (était {player.solo_tier.title()} {player.solo_rank})"
+                                    )
+
+                            # Met à jour la DB si le rang a changé ou si c'est la première fois
+                            if (
+                                not player.solo_tier
+                                or player.solo_tier != current_tier
+                                or player.solo_rank != current_rank
+                            ):
+                                self.db.update_rank(
+                                    player.puuid, guild_id, current_tier, current_rank
+                                )
+                                player.solo_tier = current_tier
+                                player.solo_rank = current_rank
+                    except RiotAPIError as exc:
+                        logger.error(
+                            "Erreur récupération rank pour %s : %s", player.riot_id, exc
+                        )
                     continue
 
                 # Identifie les matchs plus récents que le dernier connu.
@@ -138,28 +245,55 @@ class BotDiff(commands.Bot):
 
             # Envoie un embed par match unique (déduplication premade).
             # Tri chrologique par match_id si le format est Region_Timestamp/ID
-            ordered_matches = sorted(new_matches_map.items(), key=lambda x: int(x[0].split('_')[1]) if '_' in x[0] else 0)
+            ordered_matches = sorted(
+                new_matches_map.items(),
+                key=lambda x: int(x[0].split("_")[1]) if "_" in x[0] else 0,
+            )
             for match_id, tracked_in_match in ordered_matches:
                 try:
                     match_data = await self.riot.get_match_detail(match_id)
                 except RiotAPIError as exc:
-                    logger.error("Impossible de récupérer le match %s : %s", match_id, exc)
+                    logger.error(
+                        "Impossible de récupérer le match %s : %s", match_id, exc
+                    )
                     continue
 
                 # Mise à jour du streak pour chaque joueur surveillé dans ce match
                 for p_dict in tracked_in_match:
-                    player_obj = next((p for p in players if p.puuid == p_dict["puuid"]), None)
+                    player_obj = next(
+                        (p for p in players if p.puuid == p_dict["puuid"]), None
+                    )
                     if player_obj:
-                        participant = next((x for x in match_data["info"]["participants"] if x["puuid"] == player_obj.puuid), None)
+                        participant = next(
+                            (
+                                x
+                                for x in match_data["info"]["participants"]
+                                if x["puuid"] == player_obj.puuid
+                            ),
+                            None,
+                        )
                         if participant:
-                            is_remake = participant.get("gameEndedInEarlySurrender", False) or match_data["info"].get("gameDuration", 0) < 240
+                            is_remake = (
+                                participant.get("gameEndedInEarlySurrender", False)
+                                or match_data["info"].get("gameDuration", 0) < 240
+                            )
                             if not is_remake:
                                 won = participant["win"]
                                 if won:
-                                    player_obj.streak = 1 if player_obj.streak < 0 else player_obj.streak + 1
+                                    player_obj.streak = (
+                                        1
+                                        if player_obj.streak < 0
+                                        else player_obj.streak + 1
+                                    )
                                 else:
-                                    player_obj.streak = -1 if player_obj.streak > 0 else player_obj.streak - 1
-                                self.db.update_streak(player_obj.puuid, guild_id, player_obj.streak)
+                                    player_obj.streak = (
+                                        -1
+                                        if player_obj.streak > 0
+                                        else player_obj.streak - 1
+                                    )
+                                self.db.update_streak(
+                                    player_obj.puuid, guild_id, player_obj.streak
+                                )
                         p_dict["streak"] = player_obj.streak
 
                 embeds, files, view = await build_match_embed(
@@ -173,11 +307,16 @@ class BotDiff(commands.Bot):
                 content = f"🎮 {names} vient de terminer une partie !"
 
                 try:
-                    await channel.send(content=content, embeds=embeds, files=files, view=view)  # type: ignore[union-attr]
-                    logger.info("Alerte envoyée pour le match %s dans le guild %s.", match_id, guild_id)
+                    await channel.send(
+                        content=content, embeds=embeds, files=files, view=view
+                    )  # type: ignore[union-attr]
+                    logger.info(
+                        "Alerte envoyée pour le match %s dans le guild %s.",
+                        match_id,
+                        guild_id,
+                    )
                 except discord.HTTPException as exc:
                     logger.error("Impossible d'envoyer le message : %s", exc)
-
 
     @check_matches_loop.before_loop
     async def before_check(self) -> None:
@@ -190,7 +329,9 @@ class BotDiff(commands.Bot):
 # ════════════════════════════════════════════════════════════
 
 
-@app_commands.command(name="add", description="Ajouter un joueur LoL à la surveillance.")
+@app_commands.command(
+    name="add", description="Ajouter un joueur LoL à la surveillance."
+)
 @app_commands.describe(riot_id="Nom Riot du joueur (ex: Faker)", tag="Tagline (ex: T1)")
 async def add(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
     """Ajoute un joueur à la base de données en résolvant son PUUID."""
@@ -218,7 +359,9 @@ async def add(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
         )
 
 
-@app_commands.command(name="remove", description="Retirer un joueur de la surveillance.")
+@app_commands.command(
+    name="remove", description="Retirer un joueur de la surveillance."
+)
 @app_commands.describe(riot_id="Nom Riot du joueur", tag="Tagline")
 async def remove(interaction: discord.Interaction, riot_id: str, tag: str) -> None:
     """Retire un joueur de la surveillance."""
@@ -236,7 +379,9 @@ async def remove(interaction: discord.Interaction, riot_id: str, tag: str) -> No
         )
 
 
-@app_commands.command(name="list", description="Afficher la liste des joueurs surveillés.")
+@app_commands.command(
+    name="list", description="Afficher la liste des joueurs surveillés."
+)
 async def list_players(interaction: discord.Interaction) -> None:
     """Affiche tous les joueurs traqués pour ce serveur."""
     assert interaction.guild is not None
@@ -347,30 +492,38 @@ async def profile(interaction: discord.Interaction, riot_id: str, tag: str) -> N
     try:
         # 1. Résoudre le PUUID
         puuid = await bot.riot.get_puuid(riot_id, tag)
-        
+
         # 2. Récupérer les infos Summoner (pour level et icon) et les Match IDs en parallèle
         summoner_task = bot.riot.get_summoner_by_puuid(bot.platform, puuid)
         match_ids_task = bot.riot.get_match_ids(puuid, count=10)
-        
+
         summoner, match_ids = await asyncio.gather(summoner_task, match_ids_task)
 
         # 3. Récupérer le classement et les détails des matchs en parallèle
         league_task = bot.riot.get_league_entries_by_puuid(bot.platform, puuid)
         matches_task = asyncio.gather(
             *[bot.riot.get_match_detail(mid) for mid in match_ids],
-            return_exceptions=True
+            return_exceptions=True,
         )
-        
-        league_entries, matches_results = await asyncio.gather(league_task, matches_task)
-        
+
+        league_entries, matches_results = await asyncio.gather(
+            league_task, matches_task
+        )
+
         # Filtrer les matchs valides
         valid_matches = [m for m in matches_results if not isinstance(m, Exception)]
 
         # 4. Construire l'embed
         embed, files, view = await build_profile_embed(
-            riot_id, tag, summoner, league_entries, valid_matches, puuid, platform=bot.platform
+            riot_id,
+            tag,
+            summoner,
+            league_entries,
+            valid_matches,
+            puuid,
+            platform=bot.platform,
         )
-        
+
         await interaction.followup.send(embed=embed, files=files, view=view)
 
     except RiotAPIError as exc:
