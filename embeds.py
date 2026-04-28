@@ -638,6 +638,115 @@ async def build_match_embed(
             await session.close()
 
 
+class ProfileButton(discord.ui.Button):
+    def __init__(self, tp: dict[str, Any], platform: str):
+        super().__init__(
+            label="Profil",
+            style=discord.ButtonStyle.secondary,
+            emoji="👤"
+        )
+        self.tp = tp
+        self.platform = platform
+
+    async def callback(self, interaction: discord.Interaction):
+        from bot import BotDiff
+        import asyncio
+        bot: BotDiff = interaction.client  # type: ignore
+
+        await interaction.response.defer(thinking=True)
+
+        riot_id = self.tp["riot_id"]
+        tag = self.tp["tag"]
+        puuid = self.tp["puuid"]
+
+        try:
+            summoner_task = bot.riot.get_summoner_by_puuid(bot.platform, puuid)
+            match_ids_task = bot.riot.get_match_ids(puuid, count=10)
+            summoner, match_ids = await asyncio.gather(summoner_task, match_ids_task)
+
+            league_task = bot.riot.get_league_entries_by_puuid(bot.platform, puuid)
+            matches_task = asyncio.gather(
+                *[bot.riot.get_match_detail(mid) for mid in match_ids],
+                return_exceptions=True
+            )
+            league_entries, matches_results = await asyncio.gather(league_task, matches_task)
+            
+            valid_matches = [m for m in matches_results if not isinstance(m, Exception)]
+
+            embed, files, view = await build_profile_embed(
+                riot_id, tag, summoner, league_entries, valid_matches, puuid, platform=bot.platform
+            )
+            
+            await interaction.followup.send(
+                content=f"🕵️‍♂️ **{interaction.user.mention}** est en train de stalker en cachette...",
+                embed=embed,
+                files=files,
+                view=view
+            )
+
+        except Exception as exc:
+            logger.exception("Erreur lors du bouton /profile")
+            await interaction.followup.send(f"❌ Impossible de charger le profil : `{exc}`")
+
+
+class HistoryButton(discord.ui.Button):
+    def __init__(self, tp: dict[str, Any], platform: str):
+        super().__init__(
+            label="Historique",
+            style=discord.ButtonStyle.secondary,
+            emoji="📜"
+        )
+        self.tp = tp
+        self.platform = platform
+
+    async def callback(self, interaction: discord.Interaction):
+        from bot import BotDiff
+        import asyncio
+        bot: BotDiff = interaction.client  # type: ignore
+
+        await interaction.response.defer(thinking=True)
+
+        riot_id = self.tp["riot_id"]
+        tag = self.tp["tag"]
+        puuid = self.tp["puuid"]
+
+        try:
+            match_ids = await bot.riot.get_match_ids(puuid, count=5)
+            if not match_ids:
+                await interaction.followup.send(f"📭 Aucune partie récente trouvée pour **{riot_id}#{tag}**.")
+                return
+            
+            results = await asyncio.gather(
+                *[bot.riot.get_match_detail(mid) for mid in match_ids],
+                return_exceptions=True,
+            )
+            matches: list[dict] = []
+            for mid, res in zip(match_ids, results):
+                if isinstance(res, Exception):
+                    logger.warning("Impossible de récupérer le match %s : %s", mid, res)
+                else:
+                    matches.append(res)
+            
+            if not matches:
+                await interaction.followup.send(f"❌ Impossible de récupérer les détails des parties pour **{riot_id}#{tag}**.")
+                return
+
+            embeds, files, view = await build_history_embed(
+                riot_id, tag, puuid, matches, platform=bot.platform
+            )
+            
+            await interaction.followup.send(
+                content=f"📜 **{interaction.user.mention}** ressort les vieux dossiers...",
+                embeds=embeds,
+                files=files,
+                view=view
+            )
+
+        except Exception as exc:
+            logger.exception("Erreur lors du bouton historique")
+            await interaction.followup.send(f"❌ Impossible de charger l'historique : `{exc}`")
+
+
 class MatchDetailsView(discord.ui.View):
     """Vue contenant un bouton pour afficher les détails du match en éphémère."""
 
@@ -652,7 +761,19 @@ class MatchDetailsView(discord.ui.View):
         self.tracked_players = tracked_players
         self.platform = platform
 
-        # Ajouter le bouton DPM.LOL pour chaque joueur.
+        # Récupérer le bouton Détails ajouté automatiquement par le décorateur
+        details_button = self.children[0]
+        self.clear_items()
+
+        # 1. Ajouter le bouton Profil et Historique pour chaque joueur (tout à gauche)
+        for tp in tracked_players:
+            self.add_item(ProfileButton(tp, platform))
+            self.add_item(HistoryButton(tp, platform))
+
+        # 2. Ajouter le bouton Détails au milieu
+        self.add_item(details_button)
+
+        # 3. Ajouter le bouton DPM.LOL pour chaque joueur (à droite)
         for tp in tracked_players:
             dpm_url = DPM_PROFILE_URL.format(
                 riot_id=tp["riot_id"].replace(" ", ""),
@@ -736,7 +857,10 @@ class MatchDetailsView(discord.ui.View):
                 all_lines.append(f"{conf['icon']} {c_txt} {k_txt} {bar} {d_txt}")
 
         embed.description = "\n".join(all_lines)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(
+            content=f"🤓 **{interaction.user.mention}** sort la calculatrice pour juger qui a fait le moins de dégâts...",
+            embed=embed
+        )
 
 
 
