@@ -203,12 +203,12 @@ class BotDiff(commands.Bot):
                                 if new_val > old_val:
                                     # Rank UP
                                     await channel.send(
-                                        f"📈 **{player.riot_id}#{player.tag}** a RANK UP en Solo/Duo ! ({player.solo_tier.title()} {player.solo_rank} ➔ **{current_tier.title()} {current_rank}**)"
+                                        f"📈 **{player.riot_id}#{player.tag}** a RANK UP ! ({player.solo_tier.title()} {player.solo_rank} ➔ **{current_tier.title()} {current_rank}**)"
                                     )
                                 elif new_val < old_val:
                                     # Rank DOWN (Troll message)
                                     await channel.send(
-                                        f"📉 AHAHAH **{player.riot_id}#{player.tag}** a RANK DOWN en Solo/Duo ! Retourne dans la poubelle ➔ **{current_tier.title()} {current_rank}** (était {player.solo_tier.title()} {player.solo_rank})"
+                                        f"📉 **{player.riot_id}#{player.tag}** a RANK DOWN ! Décidément, LoL c'est pas fait pour tout le monde ➔ **{current_tier.title()} {current_rank}** (était {player.solo_tier.title()} {player.solo_rank})"
                                     )
 
                             # Met à jour la DB si le rang a changé ou si c'est la première fois
