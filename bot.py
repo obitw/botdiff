@@ -116,6 +116,7 @@ class BotDiff(commands.Bot):
             # Collecte les nouveaux matchs par joueur.
             # new_matches_map : match_id -> [{riot_id, tag, puuid}, ...]
             new_matches_map: dict[str, list[dict[str, str]]] = defaultdict(list)
+            pending_rank_messages: list[str] = []
 
             for player in players:
                 try:
@@ -202,12 +203,12 @@ class BotDiff(commands.Bot):
 
                                 if new_val > old_val:
                                     # Rank UP
-                                    await channel.send(
+                                    pending_rank_messages.append(
                                         f"📈 **{player.riot_id}#{player.tag}** a RANK UP ! ({player.solo_tier.title()} {player.solo_rank} ➔ **{current_tier.title()} {current_rank}**)"
                                     )
                                 elif new_val < old_val:
                                     # Rank DOWN (Troll message)
-                                    await channel.send(
+                                    pending_rank_messages.append(
                                         f"📉 **{player.riot_id}#{player.tag}** a RANK DOWN ! Décidément, LoL c'est pas fait pour tout le monde 🥶... Bienvenu en **{current_tier.title()} {current_rank}** !"
                                     )
 
@@ -317,6 +318,12 @@ class BotDiff(commands.Bot):
                     )
                 except discord.HTTPException as exc:
                     logger.error("Impossible d'envoyer le message : %s", exc)
+
+            for msg in pending_rank_messages:
+                try:
+                    await channel.send(msg)
+                except discord.HTTPException as exc:
+                    logger.error("Impossible d'envoyer le message de rank : %s", exc)
 
     @check_matches_loop.before_loop
     async def before_check(self) -> None:
