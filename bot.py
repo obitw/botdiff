@@ -208,7 +208,7 @@ class BotDiff(commands.Bot):
                                 elif new_val < old_val:
                                     # Rank DOWN (Troll message)
                                     await channel.send(
-                                        f"📉 **{player.riot_id}#{player.tag}** a RANK DOWN ! Décidément, LoL c'est pas fait pour tout le monde ➔ **{current_tier.title()} {current_rank}** (était {player.solo_tier.title()} {player.solo_rank})"
+                                        f"📉 **{player.riot_id}#{player.tag}** a RANK DOWN ! Décidément, LoL c'est pas fait pour tout le monde 🥶... Bienvenu en **{current_tier.title()} {current_rank}** !"
                                     )
 
                             # Met à jour la DB si le rang a changé ou si c'est la première fois
