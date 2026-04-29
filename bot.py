@@ -209,7 +209,7 @@ class BotDiff(commands.Bot):
                                 elif new_val < old_val:
                                     # Rank DOWN (Troll message)
                                     pending_rank_messages.append(
-                                        f"📉 **{player.riot_id}#{player.tag}** a RANK DOWN ! Décidément, LoL c'est pas fait pour tout le monde 🥶... Bienvenu en **{current_tier.title()} {current_rank}** !"
+                                        f"📉 **{player.riot_id}#{player.tag}** a RANK DOWN !\nDécidément, LoL c'est pas fait pour tout le monde 🥶... Bienvenu en **{current_tier.title()} {current_rank}** !"
                                     )
 
                             # Met à jour la DB si le rang a changé ou si c'est la première fois
