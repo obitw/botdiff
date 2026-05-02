@@ -46,7 +46,9 @@ async def _get_latest_version(session: aiohttp.ClientSession) -> str:
                 if versions and isinstance(versions, list):
                     _cached_ddragon_version = str(versions[0])
                     _last_version_check = now
-                    logger.info("Version Data Dragon mise à jour : %s", _cached_ddragon_version)
+                    logger.info(
+                        "Version Data Dragon mise à jour : %s", _cached_ddragon_version
+                    )
     except Exception as exc:
         logger.warning(
             "Impossible de récupérer la version Data Dragon, utilisation de %s : %s",
@@ -55,6 +57,8 @@ async def _get_latest_version(session: aiohttp.ClientSession) -> str:
         )
 
     return _cached_ddragon_version
+
+
 DDRAGON_CHAMPION_ICON = (
     "https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{champion}.png"
 )
@@ -70,14 +74,12 @@ DDRAGON_ITEM_ICON = (
 DDRAGON_SPELL_ICON = (
     "https://ddragon.leagueoflegends.com/cdn/{version}/img/spell/{spell}.png"
 )
-CD_RANK_ICON = (
-    "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-{tier}.png"
-)
+CD_RANK_ICON = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-{tier}.png"
 
 DPM_PROFILE_URL = "https://dpm.lol/{riot_id}-{tag}"
 
 # ── Couleurs ────────────────────────────────────────────────
-COLOR_WIN = 0x2ECC71   # Vert
+COLOR_WIN = 0x2ECC71  # Vert
 COLOR_LOSS = 0xE74C3C  # Rouge
 
 # ── Couleurs des rangs ──────────────────────────────────────
@@ -146,7 +148,7 @@ RANK_EMOJIS: dict[str, str] = {
 TEAM_CONFIG = {
     100: {"name": "🔵 Bleu", "icon": "🔹", "bar": "🟦"},
     200: {"name": "🔴 Rouge", "icon": "🔸", "bar": "🟥"},
-    0:   {"name": "Équipe ?", "icon": "◽", "bar": "⬜"}
+    0: {"name": "Équipe ?", "icon": "◽", "bar": "⬜"},
 }
 
 # ── Taille des icônes pour le strip items ───────────────────
@@ -191,7 +193,9 @@ def _get_item_ids(participant: dict[str, Any]) -> list[int]:
     ]
 
 
-async def _download_image(session: aiohttp.ClientSession, url: str) -> Image.Image | None:
+async def _download_image(
+    session: aiohttp.ClientSession, url: str
+) -> Image.Image | None:
     """Télécharge une image depuis une URL et la renvoie comme objet PIL."""
     try:
         async with session.get(url) as resp:
@@ -355,7 +359,7 @@ async def _build_top_champs_strip(
     spacing = 10
     total_width = len(images) * 64 + (len(images) - 1) * spacing
     strip = Image.new("RGBA", (total_width, 64), (0, 0, 0, 0))
-    
+
     x = 0
     for img in images:
         strip.paste(img, (x, 0))
@@ -385,7 +389,7 @@ async def build_profile_embed(
     """Construit un embed de profil complet avec statistiques moyennes."""
     level = summoner["summonerLevel"]
     profile_icon_id = summoner["profileIconId"]
-    
+
     own_session = session is None
     if own_session:
         session = aiohttp.ClientSession()
@@ -403,9 +407,9 @@ async def build_profile_embed(
             wins = entry["wins"]
             losses = entry["losses"]
             wr = (wins / (wins + losses)) * 100 if (wins + losses) > 0 else 0
-            
+
             info = f"**{tier.title()} {rank}** ({lp} LP)\n{wins}W / {losses}L — {wr:.1f}% WR"
-            
+
             if entry["queueType"] == "RANKED_SOLO_5x5":
                 ranked_solo = info
                 best_tier = tier
@@ -418,14 +422,14 @@ async def build_profile_embed(
         total_kills, total_deaths, total_assists = 0, 0, 0
         total_cs, total_min, total_damage = 0, 0, 0
         champions_count: dict[str, int] = {}
-        
+
         count = 0
         for match in last_matches:
             parts = match["info"]["participants"]
             p = next((x for x in parts if x["puuid"] == puuid), None)
             if not p:
                 continue
-                
+
             count += 1
             total_kills += p["kills"]
             total_deaths += p["deaths"]
@@ -433,12 +437,16 @@ async def build_profile_embed(
             total_cs += p["totalMinionsKilled"] + p["neutralMinionsKilled"]
             total_min += (match["info"].get("gameDuration", 0)) / 60
             total_damage += p["totalDamageDealtToChampions"]
-            
+
             champ = p["championName"]
             champions_count[champ] = champions_count.get(champ, 0) + 1
 
         if count > 0:
-            avg_k, avg_d, avg_a = total_kills/count, total_deaths/count, total_assists/count
+            avg_k, avg_d, avg_a = (
+                total_kills / count,
+                total_deaths / count,
+                total_assists / count,
+            )
             avg_kda = (total_kills + total_assists) / max(total_deaths, 1)
             avg_cs_min = total_cs / total_min if total_min > 0 else 0
             avg_dmg = total_damage / count
@@ -449,18 +457,22 @@ async def build_profile_embed(
         else:
             stats_val = "Aucune partie récente trouvée."
 
-        top_champs = sorted(champions_count.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_champs = sorted(champions_count.items(), key=lambda x: x[1], reverse=True)[
+            :3
+        ]
         top_champs_str = ", ".join([f"**{c}** ({n})" for c, n in top_champs])
 
         # 3. Construction de l'Embed
         color = RANK_COLORS.get(best_tier, 0x34495E)
         embed = discord.Embed(color=color, description=f"### 🎖️ Level {level}")
-        
+
         # Author : Invocateur + Icône de profil
         version = await _get_latest_version(session)
-        profile_icon_url = DDRAGON_PROFILE_ICON.format(version=version, icon_id=profile_icon_id)
+        profile_icon_url = DDRAGON_PROFILE_ICON.format(
+            version=version, icon_id=profile_icon_id
+        )
         embed.set_author(name=f"{riot_id}#{tag}", icon_url=profile_icon_url)
-        
+
         files: list[discord.File] = []
 
         # Thumbnail : Rang cropé
@@ -469,7 +481,8 @@ async def build_profile_embed(
             img = await _download_image(session, url)
             if img:
                 bbox = img.getbbox()
-                if bbox: img = img.crop(bbox)
+                if bbox:
+                    img = img.crop(bbox)
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
                 buf.seek(0)
@@ -479,11 +492,15 @@ async def build_profile_embed(
         # Champs
         embed.add_field(name="🏆 Ranked Solo/Duo", value=ranked_solo, inline=True)
         embed.add_field(name="⚔️ Ranked Flex", value=ranked_flex, inline=True)
-        
-        embed.add_field(name=f"📊 Moyennes ({count} parties)", value=stats_val, inline=False)
-        
+
+        embed.add_field(
+            name=f"📊 Moyennes ({count} parties)", value=stats_val, inline=False
+        )
+
         if top_champs:
-            embed.add_field(name="👑 Champions favoris", value=top_champs_str, inline=False)
+            embed.add_field(
+                name="👑 Champions favoris", value=top_champs_str, inline=False
+            )
 
         # Image : Champions strip
         strip_buf = await _build_top_champs_strip(session, top_champs)
@@ -492,10 +509,14 @@ async def build_profile_embed(
             embed.set_image(url="attachment://champs.png")
 
         dpm_url = DPM_PROFILE_URL.format(riot_id=riot_id.replace(" ", ""), tag=tag)
-        
+
         view = discord.ui.View()
-        view.add_item(discord.ui.Button(label="DPM.LOL", url=dpm_url, style=discord.ButtonStyle.link))
-        
+        view.add_item(
+            discord.ui.Button(
+                label="DPM.LOL", url=dpm_url, style=discord.ButtonStyle.link
+            )
+        )
+
         return embed, files, view
 
     finally:
@@ -530,15 +551,22 @@ async def build_match_embed(
         queue_name = QUEUE_NAMES.get(queue_id, f"Queue {queue_id}")
 
         def fmt_d(d: int) -> str:
-            return f"{d/1000.0:.1f}k".replace(".0k", "k") if d >= 1000 else str(d)
+            return f"{d / 1000.0:.1f}k".replace(".0k", "k") if d >= 1000 else str(d)
 
         def get_bar(dmg: int, max_dmg: int, color: str, length: int = 5) -> str:
-            if max_dmg <= 0: return "⬛" * length
+            if max_dmg <= 0:
+                return "⬛" * length
             r = dmg / max_dmg
             filled = round(r * length)
             return color * filled + "⬛" * (length - filled)
-            
-        max_damage = max((p.get("totalDamageDealtToChampions", 0) for p in info.get("participants", [])), default=0)
+
+        max_damage = max(
+            (
+                p.get("totalDamageDealtToChampions", 0)
+                for p in info.get("participants", [])
+            ),
+            default=0,
+        )
 
         team_data: dict[int, dict[str, Any]] = {}
         for p in info.get("participants", []):
@@ -550,23 +578,23 @@ async def build_match_embed(
                     "deaths": 0,
                     "assists": 0,
                     "damage": 0,
-                    "players": []
+                    "players": [],
                 }
-            
+
             team_data[tid]["kills"] += p.get("kills", 0)
             team_data[tid]["deaths"] += p.get("deaths", 0)
             team_data[tid]["assists"] += p.get("assists", 0)
             dmg = p.get("totalDamageDealtToChampions", 0)
             team_data[tid]["damage"] += dmg
-            
+
             champ = p.get("championName", "Inconnu")
             k, d, a = p.get("kills", 0), p.get("deaths", 0), p.get("assists", 0)
             p_name = p.get("riotIdGameName") or p.get("summonerName", "Inconnu")
             p_puuid = p.get("puuid")
-            
+
             if len(p_name) > 15:
                 p_name = p_name[:15] + "…"
-            
+
             team_data[tid]["players"].append((champ, p_name, k, d, a, dmg, p_puuid))
 
         embeds: list[discord.Embed] = []
@@ -582,13 +610,18 @@ async def build_match_embed(
             deaths = participant["deaths"]
             assists = participant["assists"]
             kda_ratio = (kills + assists) / max(deaths, 1)
-            cs = participant["totalMinionsKilled"] + participant.get("neutralMinionsKilled", 0)
+            cs = participant["totalMinionsKilled"] + participant.get(
+                "neutralMinionsKilled", 0
+            )
             cs_per_min = cs / max(game_duration / 60, 1)
             damage = participant["totalDamageDealtToChampions"]
             vision = participant["visionScore"]
             won = participant["win"]
-            is_remake = participant.get("gameEndedInEarlySurrender", False) or game_duration < 240
-            
+            is_remake = (
+                participant.get("gameEndedInEarlySurrender", False)
+                or game_duration < 240
+            )
+
             if is_remake:
                 color = 0x95A5A6  # Gris
                 result_text = "Remake"
@@ -602,14 +635,14 @@ async def build_match_embed(
             champion_icon = DDRAGON_CHAMPION_ICON.format(
                 version=version, champion=champion
             )
-            
+
             streak = tp.get("streak", 0)
             streak_text = ""
             if streak <= -3:
                 streak_text = f"🥶 Loose streak: {-streak}\n"
             elif streak >= 3:
                 streak_text = f"🔥 Win streak: {streak}\n"
-            
+
             description = (
                 f"### {result_emoji} {champion} — {result_text}\n"
                 f"{streak_text}"
@@ -641,9 +674,7 @@ async def build_match_embed(
 class ProfileButton(discord.ui.Button):
     def __init__(self, tp: dict[str, Any], platform: str):
         super().__init__(
-            label="Profil",
-            style=discord.ButtonStyle.secondary,
-            emoji="👤"
+            label="Profil", style=discord.ButtonStyle.secondary, emoji="👤"
         )
         self.tp = tp
         self.platform = platform
@@ -651,6 +682,7 @@ class ProfileButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         from bot import BotDiff
         import asyncio
+
         bot: BotDiff = interaction.client  # type: ignore
 
         await interaction.response.defer(thinking=True)
@@ -667,34 +699,42 @@ class ProfileButton(discord.ui.Button):
             league_task = bot.riot.get_league_entries_by_puuid(bot.platform, puuid)
             matches_task = asyncio.gather(
                 *[bot.riot.get_match_detail(mid) for mid in match_ids],
-                return_exceptions=True
+                return_exceptions=True,
             )
-            league_entries, matches_results = await asyncio.gather(league_task, matches_task)
-            
+            league_entries, matches_results = await asyncio.gather(
+                league_task, matches_task
+            )
+
             valid_matches = [m for m in matches_results if not isinstance(m, Exception)]
 
             embed, files, view = await build_profile_embed(
-                riot_id, tag, summoner, league_entries, valid_matches, puuid, platform=bot.platform
+                riot_id,
+                tag,
+                summoner,
+                league_entries,
+                valid_matches,
+                puuid,
+                platform=bot.platform,
             )
-            
+
             await interaction.followup.send(
                 content=f"🕵️‍♂️ **{interaction.user.mention}** est en train de stalker en cachette...",
                 embed=embed,
                 files=files,
-                view=view
+                view=view,
             )
 
         except Exception as exc:
             logger.exception("Erreur lors du bouton /profile")
-            await interaction.followup.send(f"❌ Impossible de charger le profil : `{exc}`")
+            await interaction.followup.send(
+                f"❌ Impossible de charger le profil : `{exc}`"
+            )
 
 
 class HistoryButton(discord.ui.Button):
     def __init__(self, tp: dict[str, Any], platform: str):
         super().__init__(
-            label="Historique",
-            style=discord.ButtonStyle.secondary,
-            emoji="📜"
+            label="Historique", style=discord.ButtonStyle.secondary, emoji="📜"
         )
         self.tp = tp
         self.platform = platform
@@ -702,6 +742,7 @@ class HistoryButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         from bot import BotDiff
         import asyncio
+
         bot: BotDiff = interaction.client  # type: ignore
 
         await interaction.response.defer(thinking=True)
@@ -713,9 +754,11 @@ class HistoryButton(discord.ui.Button):
         try:
             match_ids = await bot.riot.get_match_ids(puuid, count=5)
             if not match_ids:
-                await interaction.followup.send(f"📭 Aucune partie récente trouvée pour **{riot_id}#{tag}**.")
+                await interaction.followup.send(
+                    f"📭 Aucune partie récente trouvée pour **{riot_id}#{tag}**."
+                )
                 return
-            
+
             results = await asyncio.gather(
                 *[bot.riot.get_match_detail(mid) for mid in match_ids],
                 return_exceptions=True,
@@ -726,25 +769,29 @@ class HistoryButton(discord.ui.Button):
                     logger.warning("Impossible de récupérer le match %s : %s", mid, res)
                 else:
                     matches.append(res)
-            
+
             if not matches:
-                await interaction.followup.send(f"❌ Impossible de récupérer les détails des parties pour **{riot_id}#{tag}**.")
+                await interaction.followup.send(
+                    f"❌ Impossible de récupérer les détails des parties pour **{riot_id}#{tag}**."
+                )
                 return
 
             embeds, files, view = await build_history_embed(
                 riot_id, tag, puuid, matches, platform=bot.platform
             )
-            
+
             await interaction.followup.send(
                 content=f"📜 **{interaction.user.mention}** ressort les vieux dossiers...",
                 embeds=embeds,
                 files=files,
-                view=view
+                view=view,
             )
 
         except Exception as exc:
             logger.exception("Erreur lors du bouton historique")
-            await interaction.followup.send(f"❌ Impossible de charger l'historique : `{exc}`")
+            await interaction.followup.send(
+                f"❌ Impossible de charger l'historique : `{exc}`"
+            )
 
 
 class MatchDetailsView(discord.ui.View):
@@ -765,10 +812,9 @@ class MatchDetailsView(discord.ui.View):
         details_button = self.children[0]
         self.clear_items()
 
-        # 1. Ajouter le bouton Profil et Historique pour chaque joueur (tout à gauche)
+        # 1. Ajouter le bouton Profil pour chaque joueur (tout à gauche)
         for tp in tracked_players:
             self.add_item(ProfileButton(tp, platform))
-            self.add_item(HistoryButton(tp, platform))
 
         # 2. Ajouter le bouton Détails au milieu
         self.add_item(details_button)
@@ -788,51 +834,59 @@ class MatchDetailsView(discord.ui.View):
             )
 
     @discord.ui.button(label="Détails", style=discord.ButtonStyle.secondary, emoji="📊")
-    async def show_details(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    async def show_details(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
         """Affiche les statistiques détaillées des équipes dans un message éphémère."""
         info = self.match_data["info"]
         participants = info.get("participants", [])
-        max_damage = max((p.get("totalDamageDealtToChampions", 0) for p in participants), default=0)
-        
+        max_damage = max(
+            (p.get("totalDamageDealtToChampions", 0) for p in participants), default=0
+        )
+
         # On regroupe les joueurs par équipe.
         team_data: dict[int, dict[str, Any]] = {}
         for p in participants:
             tid = p.get("teamId", 0)
             if tid not in team_data:
                 team_data[tid] = {"win": p.get("win", False), "players": []}
-            
+
             p_name = p.get("riotIdGameName") or p.get("summonerName", "Inconnu")
-            if len(p_name) > 15: p_name = p_name[:15] + "…"
-            
-            team_data[tid]["players"].append({
-                "name": p_name,
-                "champion": p.get("championName", "Inconnu"),
-                "kills": p.get("kills", 0),
-                "deaths": p.get("deaths", 0),
-                "assists": p.get("assists", 0),
-                "damage": p.get("totalDamageDealtToChampions", 0),
-                "puuid": p.get("puuid")
-            })
+            if len(p_name) > 15:
+                p_name = p_name[:15] + "…"
+
+            team_data[tid]["players"].append(
+                {
+                    "name": p_name,
+                    "champion": p.get("championName", "Inconnu"),
+                    "kills": p.get("kills", 0),
+                    "deaths": p.get("deaths", 0),
+                    "assists": p.get("assists", 0),
+                    "damage": p.get("totalDamageDealtToChampions", 0),
+                    "puuid": p.get("puuid"),
+                }
+            )
 
         tracked_puuids = {tp["puuid"] for tp in self.tracked_players}
-        
+
         def fmt_d(d: int) -> str:
-            return f"{d/1000.0:.1f}k".replace(".0k", "k") if d >= 1000 else str(d)
+            return f"{d / 1000.0:.1f}k".replace(".0k", "k") if d >= 1000 else str(d)
 
         def get_bar(dmg: int, max_dmg_val: int, b_color: str, length: int = 5) -> str:
-            if max_dmg_val <= 0: return "⬛" * length
+            if max_dmg_val <= 0:
+                return "⬛" * length
             r = dmg / max_dmg_val
             filled = round(r * length)
             return b_color * filled + "⬛" * (length - filled)
 
         embed = discord.Embed(title="📊 Détails des Équipes", color=0x34495E)
         all_lines = [f"◽ `CHAMP   ` `  KDA  ` `  DMG  `"]
-        
+
         sorted_tids = sorted(team_data.keys())
         for idx, tid in enumerate(sorted_tids):
             data = team_data[tid]
             conf = TEAM_CONFIG.get(tid, TEAM_CONFIG[0])
-            
+
             # Un petit séparateur si c'est la deuxième équipe
             if idx > 0:
                 all_lines.append("")
@@ -840,29 +894,27 @@ class MatchDetailsView(discord.ui.View):
             for p in data["players"]:
                 is_tracked = p["puuid"] in tracked_puuids
                 bar = get_bar(p["damage"], max_damage, conf["bar"], length=4)
-                
-                c_name = p['champion'][:8]
+
+                c_name = p["champion"][:8]
                 kda_val = f"{p['kills']}/{p['deaths']}/{p['assists']}"
-                dmg_val = fmt_d(p['damage'])
-                
+                dmg_val = fmt_d(p["damage"])
+
                 c_txt = f"`{c_name:<8}`"
                 k_txt = f"`{kda_val:^7}`"
                 d_txt = f"`{dmg_val:>5}`"
-                
+
                 if is_tracked:
                     c_txt = f"**{c_txt}**"
                     k_txt = f"**{k_txt}**"
                     d_txt = f"**{d_txt}**"
-                
+
                 all_lines.append(f"{conf['icon']} {c_txt} {k_txt} {bar} {d_txt}")
 
         embed.description = "\n".join(all_lines)
         await interaction.response.send_message(
             content=f"🤓 **{interaction.user.mention}** sort la calculatrice pour juger qui a fait le moins de dégâts...",
-            embed=embed
+            embed=embed,
         )
-
-
 
 
 # ════════════════════════════════════════════════════════════
@@ -913,7 +965,6 @@ async def build_history_embed(
 
         embeds.append(title_embed)
 
-
         for game_idx, match_data in enumerate(matches):
             participant = _find_participant(match_data, puuid)
             if participant is None:
@@ -925,7 +976,9 @@ async def build_history_embed(
             deaths = participant["deaths"]
             assists = participant["assists"]
             kda_ratio = (kills + assists) / max(deaths, 1)
-            cs = participant["totalMinionsKilled"] + participant.get("neutralMinionsKilled", 0)
+            cs = participant["totalMinionsKilled"] + participant.get(
+                "neutralMinionsKilled", 0
+            )
             game_duration = info.get("gameDuration", 0)
             cs_per_min = cs / max(game_duration / 60, 1)
             damage = participant["totalDamageDealtToChampions"]
@@ -940,8 +993,11 @@ async def build_history_embed(
             )
 
             won = participant["win"]
-            is_remake = participant.get("gameEndedInEarlySurrender", False) or game_duration < 240
-            
+            is_remake = (
+                participant.get("gameEndedInEarlySurrender", False)
+                or game_duration < 240
+            )
+
             if is_remake:
                 color = 0x95A5A6  # Gris
                 result_text = "Remake"
