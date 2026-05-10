@@ -20,6 +20,7 @@ from discord.ext import commands, tasks
 
 from database import Database, TrackedPlayer
 from embeds import build_history_embed, build_match_embed, build_profile_embed
+from embeds.images import build_rank_change_image
 from riot_api import RiotAPI, RiotAPIError
 
 logger = logging.getLogger("botdiff.bot")
@@ -116,7 +117,7 @@ class BotDiff(commands.Bot):
             # Collecte les nouveaux matchs par joueur.
             # new_matches_map : match_id -> [{riot_id, tag, puuid}, ...]
             new_matches_map: dict[str, list[dict[str, str]]] = defaultdict(list)
-            pending_rank_messages: list[str] = []
+            pending_rank_messages: list[tuple[str, str | None, discord.File | None]] = []
 
             for player in players:
                 try:
@@ -200,17 +201,68 @@ class BotDiff(commands.Bot):
                                     player.solo_tier, player.solo_rank
                                 )
                                 new_val = get_rank_value(current_tier, current_rank)
+                                tier_changed = player.solo_tier.upper() != current_tier.upper()
 
                                 if new_val > old_val:
                                     # Rank UP
-                                    pending_rank_messages.append(
-                                        f"📈 **{player.riot_id}#{player.tag}** a RANK UP ! ({player.solo_tier.title()} {player.solo_rank} ➔ **{current_tier.title()} {current_rank}**)"
-                                    )
+                                    if tier_changed:
+                                        # Changement de tier → embed visuel avec les images de rang
+                                        img_buf = build_rank_change_image(
+                                            player.solo_tier, current_tier,
+                                            player.solo_rank, current_rank,
+                                            is_promotion=True,
+                                        )
+                                        rank_file = (
+                                            discord.File(img_buf, filename="rank_change.png")
+                                            if img_buf else None
+                                        )
+                                        msg = (
+                                            f"🏆 **{player.riot_id}#{player.tag}** vient de "
+                                            f"**MONTER de division** ! "
+                                            f"{player.solo_tier.title()} {player.solo_rank} "
+                                            f"➔ **{current_tier.title()} {current_rank}** 🎉"
+                                        )
+                                        pending_rank_messages.append(
+                                            (msg, "rank_change.png" if rank_file else None, rank_file)
+                                        )
+                                    else:
+                                        # Même tier, subdivision → message texte léger
+                                        msg = (
+                                            f"📈 **{player.riot_id}#{player.tag}** a rank up ! "
+                                            f"({player.solo_tier.title()} {player.solo_rank} "
+                                            f"➔ **{current_tier.title()} {current_rank}**)"
+                                        )
+                                        pending_rank_messages.append((msg, None, None))
                                 elif new_val < old_val:
-                                    # Rank DOWN (Troll message)
-                                    pending_rank_messages.append(
-                                        f"📉 **{player.riot_id}#{player.tag}** a RANK DOWN !\nDécidément, LoL c'est pas fait pour tout le monde 🥶... Bienvenu en **{current_tier.title()} {current_rank}** !"
-                                    )
+                                    # Rank DOWN
+                                    if tier_changed:
+                                        # Changement de tier → embed visuel avec les images de rang
+                                        img_buf = build_rank_change_image(
+                                            player.solo_tier, current_tier,
+                                            player.solo_rank, current_rank,
+                                            is_promotion=False,
+                                        )
+                                        rank_file = (
+                                            discord.File(img_buf, filename="rank_change.png")
+                                            if img_buf else None
+                                        )
+                                        msg = (
+                                            f"💀 **{player.riot_id}#{player.tag}** vient de "
+                                            f"**DESCENDRE de division**... "
+                                            f"Decidement, LoL c'est pas fait pour tout le monde "
+                                            f"🥶 Bienvenu en **{current_tier.title()} {current_rank}** !"
+                                        )
+                                        pending_rank_messages.append(
+                                            (msg, "rank_change.png" if rank_file else None, rank_file)
+                                        )
+                                    else:
+                                        # Même tier → message texte troll
+                                        msg = (
+                                            f"📉 **{player.riot_id}#{player.tag}** a rank down !\n"
+                                            f"Decidement, LoL c'est pas fait pour tout le monde "
+                                            f"🥶... Bienvenu en **{current_tier.title()} {current_rank}** !"
+                                        )
+                                        pending_rank_messages.append((msg, None, None))
 
                             # Met à jour la DB si le rang a changé ou si c'est la première fois
                             if (
@@ -319,9 +371,15 @@ class BotDiff(commands.Bot):
                 except discord.HTTPException as exc:
                     logger.error("Impossible d'envoyer le message : %s", exc)
 
-            for msg in pending_rank_messages:
+            for msg, img_filename, rank_file in pending_rank_messages:
                 try:
-                    await channel.send(msg)
+                    if rank_file is not None and img_filename is not None:
+                        # Changement de tier → embed avec bannière visuelle
+                        embed = discord.Embed(description=msg, color=0xFFD700)
+                        embed.set_image(url=f"attachment://{img_filename}")
+                        await channel.send(embed=embed, file=rank_file)  # type: ignore[union-attr]
+                    else:
+                        await channel.send(msg)  # type: ignore[union-attr]
                 except discord.HTTPException as exc:
                     logger.error("Impossible d'envoyer le message de rank : %s", exc)
 

@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import io
 import logging
+import pathlib
 from typing import Any
 import aiohttp
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from .utils import (
     _get_latest_version, DDRAGON_ITEM_ICON, DDRAGON_SPELL_ICON,
-    DDRAGON_CHAMPION_ICON, ITEM_ICON_SIZE, ITEM_SPACING, _get_item_ids
+    DDRAGON_CHAMPION_ICON, ITEM_ICON_SIZE, ITEM_SPACING, _get_item_ids,
+    RANK_COLORS,
 )
 
 logger = logging.getLogger("botdiff.embeds.images")
+
+ASSETS_RANK_DIR = pathlib.Path(__file__).parent.parent / "assets" / "rank"
 
 SUMMONER_SPELL_DDRAGON = {
     1: "SummonerBoost", 3: "SummonerExhaust", 4: "SummonerFlash",
@@ -111,3 +115,138 @@ async def _build_top_champs_strip(session: aiohttp.ClientSession, top_champs: li
     strip.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
+
+def build_rank_change_image(
+    old_tier: str,
+    new_tier: str,
+    old_rank: str,
+    new_rank: str,
+    is_promotion: bool,
+) -> io.BytesIO | None:
+    """Compose une image bannière pour un changement de tier (ex: Silver → Gold).
+
+    Retourne un BytesIO PNG ou None si les assets sont introuvables.
+    """
+    old_path = ASSETS_RANK_DIR / f"{old_tier.lower()}.png"
+    new_path = ASSETS_RANK_DIR / f"{new_tier.lower()}.png"
+
+    if not old_path.exists() or not new_path.exists():
+        logger.warning("Assets rank introuvables : %s ou %s", old_path, new_path)
+        return None
+
+    EMBLEM_SIZE = 200
+    ARROW_ZONE = 110
+    PADDING_X = 40
+    PADDING_TOP = 20
+    LABEL_HEIGHT = 60
+    WIDTH = EMBLEM_SIZE * 2 + ARROW_ZONE + PADDING_X * 2
+    HEIGHT = EMBLEM_SIZE + LABEL_HEIGHT + PADDING_TOP + 20
+
+    # ── Dégradé horizontal : couleur ancien rang → couleur nouveau rang (assombries)
+    def _hex_to_dark_rgb(hex_color: int, factor: float = 0.25) -> tuple[int, int, int]:
+        r = int(((hex_color >> 16) & 0xFF) * factor)
+        g = int(((hex_color >> 8) & 0xFF) * factor)
+        b = int((hex_color & 0xFF) * factor)
+        return (max(r, 18), max(g, 18), max(b, 18))
+
+    old_rgb = _hex_to_dark_rgb(RANK_COLORS.get(old_tier.upper(), 0x2C2F33))
+    new_rgb = _hex_to_dark_rgb(RANK_COLORS.get(new_tier.upper(), 0x2C2F33))
+
+    bg = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 255))
+    draw_bg = ImageDraw.Draw(bg)
+    for x in range(WIDTH):
+        t = x / (WIDTH - 1)
+        r = int(old_rgb[0] + (new_rgb[0] - old_rgb[0]) * t)
+        g = int(old_rgb[1] + (new_rgb[1] - old_rgb[1]) * t)
+        b = int(old_rgb[2] + (new_rgb[2] - old_rgb[2]) * t)
+        draw_bg.line([(x, 0), (x, HEIGHT)], fill=(r, g, b, 255))
+
+    # Charger et coller les emblèmes
+    old_img = Image.open(old_path).convert("RGBA").resize((EMBLEM_SIZE, EMBLEM_SIZE), Image.LANCZOS)
+    new_img = Image.open(new_path).convert("RGBA").resize((EMBLEM_SIZE, EMBLEM_SIZE), Image.LANCZOS)
+
+    old_x = PADDING_X
+    new_x = PADDING_X + EMBLEM_SIZE + ARROW_ZONE
+    emblem_y = PADDING_TOP
+
+    bg.paste(old_img, (old_x, emblem_y), old_img)
+    bg.paste(new_img, (new_x, emblem_y), new_img)
+
+    draw = ImageDraw.Draw(bg)
+
+    # ── Flèche dessinée avec PIL (pas d'unicode) ──────────────
+    arrow_color = (80, 230, 110) if is_promotion else (230, 70, 70)
+    cx = PADDING_X + EMBLEM_SIZE + ARROW_ZONE // 2
+    cy = PADDING_TOP + EMBLEM_SIZE // 2
+
+    if is_promotion:
+        # Flèche horizontale →
+        lw = 5          # épaisseur trait
+        body_len = 36   # longueur du corps
+        head_w = 18     # demi-hauteur de la tête
+        head_len = 18   # longueur de la tête
+
+        x0 = cx - (body_len + head_len) // 2
+        x_mid = x0 + body_len
+        x1 = x_mid + head_len
+
+        # Corps
+        draw.rectangle([x0, cy - lw // 2, x_mid, cy + lw // 2], fill=arrow_color)
+        # Tête (triangle)
+        draw.polygon([
+            (x_mid, cy - head_w),
+            (x1,    cy),
+            (x_mid, cy + head_w),
+        ], fill=arrow_color)
+    else:
+        # Flèche vers le bas ↓
+        lw = 5
+        body_len = 36
+        head_w = 18
+        head_len = 18
+
+        y0 = cy - (body_len + head_len) // 2
+        y_mid = y0 + body_len
+        y1 = y_mid + head_len
+
+        # Corps
+        draw.rectangle([cx - lw // 2, y0, cx + lw // 2, y_mid], fill=arrow_color)
+        # Tête (triangle)
+        draw.polygon([
+            (cx - head_w, y_mid),
+            (cx,          y1),
+            (cx + head_w, y_mid),
+        ], fill=arrow_color)
+
+    # ── Labels sous les emblèmes ──────────────────────────────
+    try:
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
+    except OSError:
+        font_label = ImageFont.load_default()
+
+    label_y = PADDING_TOP + EMBLEM_SIZE + 8
+    old_label = f"{old_tier.title()} {old_rank}"
+    new_label = f"{new_tier.title()} {new_rank}"
+
+    label_color = (220, 220, 220, 255)
+
+    bbox_old = draw.textbbox((0, 0), old_label, font=font_label)
+    tw_old = bbox_old[2] - bbox_old[0]
+    draw.text(
+        (old_x + (EMBLEM_SIZE - tw_old) // 2, label_y),
+        old_label, font=font_label, fill=label_color,
+    )
+
+    bbox_new = draw.textbbox((0, 0), new_label, font=font_label)
+    tw_new = bbox_new[2] - bbox_new[0]
+    draw.text(
+        (new_x + (EMBLEM_SIZE - tw_new) // 2, label_y),
+        new_label, font=font_label, fill=label_color,
+    )
+
+    buf = io.BytesIO()
+    bg.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
